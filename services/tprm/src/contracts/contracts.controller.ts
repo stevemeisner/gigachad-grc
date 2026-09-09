@@ -17,11 +17,10 @@ import { Response } from 'express';
 import { ContractsService } from './contracts.service';
 import { CreateContractDto } from './dto/create-contract.dto';
 import { UpdateContractDto } from './dto/update-contract.dto';
-import { CurrentUser, UserContext } from '@gigachad-grc/shared';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { CurrentUser, FirebaseAuthGuard, UserContext } from '@gigachad-grc/shared';
 
 @Controller('contracts')
-@UseGuards(DevAuthGuard)
+@UseGuards(FirebaseAuthGuard)
 export class ContractsController {
   constructor(private readonly contractsService: ContractsService) {}
 

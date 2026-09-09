@@ -1,7 +1,7 @@
 import { Controller, Get, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { SystemHealthService } from './system-health.service';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { FirebaseAuthGuard } from '@gigachad-grc/shared';
 import { PermissionGuard } from '../auth/permission.guard';
 import { RequirePermission } from '../auth/decorators/require-permission.decorator';
 import { Resource, Action } from '../permissions/dto/permission.dto';
@@ -37,7 +37,7 @@ export class SystemHealthController {
    * Comprehensive system health - requires admin
    */
   @Get('health/detailed')
-  @UseGuards(DevAuthGuard, PermissionGuard)
+  @UseGuards(FirebaseAuthGuard, PermissionGuard)
   @RequirePermission(Resource.SETTINGS, Action.READ)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Detailed system health check (admin only)' })
@@ -50,7 +50,7 @@ export class SystemHealthController {
    * Get backup status
    */
   @Get('backup/status')
-  @UseGuards(DevAuthGuard, PermissionGuard)
+  @UseGuards(FirebaseAuthGuard, PermissionGuard)
   @RequirePermission(Resource.SETTINGS, Action.READ)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get backup configuration status' })
@@ -63,7 +63,7 @@ export class SystemHealthController {
    * Get setup status for first-run wizard
    */
   @Get('setup/status')
-  @UseGuards(DevAuthGuard, PermissionGuard)
+  @UseGuards(FirebaseAuthGuard, PermissionGuard)
   @RequirePermission(Resource.SETTINGS, Action.READ)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get setup wizard status' })
@@ -76,7 +76,7 @@ export class SystemHealthController {
    * Get production readiness assessment
    */
   @Get('production-readiness')
-  @UseGuards(DevAuthGuard, PermissionGuard)
+  @UseGuards(FirebaseAuthGuard, PermissionGuard)
   @RequirePermission(Resource.SETTINGS, Action.READ)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get production readiness score and recommendations' })
@@ -89,7 +89,7 @@ export class SystemHealthController {
    * Get all system warnings for dashboard display
    */
   @Get('warnings')
-  @UseGuards(DevAuthGuard, PermissionGuard)
+  @UseGuards(FirebaseAuthGuard, PermissionGuard)
   @RequirePermission(Resource.SETTINGS, Action.READ)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get active system warnings for dashboard' })

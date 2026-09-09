@@ -1,11 +1,11 @@
 import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards, Req } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { TestProceduresService, CreateTestProcedureDto, UpdateTestProcedureDto, RecordTestResultDto } from './test-procedures.service';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { FirebaseAuthGuard } from '@gigachad-grc/shared';
 
 @ApiTags('Test Procedures')
 @ApiBearerAuth()
-@UseGuards(DevAuthGuard)
+@UseGuards(FirebaseAuthGuard)
 @Controller('test-procedures')
 export class TestProceduresController {
   constructor(private readonly testProceduresService: TestProceduresService) {}

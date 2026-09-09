@@ -1,3 +1,6 @@
+# UNMAINTAINED: this override is stale and does not run — it references
+# services/integrations, services/mcp and frontend/Dockerfile.dev, none of
+# which exist. Use scripts/start-demo.sh for local development.
 # Development overrides for docker-compose.yml
 # Usage: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
 

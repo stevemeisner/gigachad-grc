@@ -1,11 +1,11 @@
 import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards, Req } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { PlanningService, CreatePlanEntryDto, UpdatePlanEntryDto } from './planning.service';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { FirebaseAuthGuard } from '@gigachad-grc/shared';
 
 @ApiTags('Audit Planning')
 @ApiBearerAuth()
-@UseGuards(DevAuthGuard)
+@UseGuards(FirebaseAuthGuard)
 @Controller('planning')
 export class PlanningController {
   constructor(private readonly planningService: PlanningService) {}

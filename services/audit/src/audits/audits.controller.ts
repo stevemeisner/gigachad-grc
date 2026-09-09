@@ -14,7 +14,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagg
 import { AuditsService } from './audits.service';
 import { CreateAuditDto } from './dto/create-audit.dto';
 import { UpdateAuditDto } from './dto/update-audit.dto';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { FirebaseAuthGuard } from '@gigachad-grc/shared';
 
 interface AuthenticatedRequest extends Request {
   user: {
@@ -28,7 +28,7 @@ interface AuthenticatedRequest extends Request {
 @ApiTags('Audits')
 @ApiBearerAuth()
 @Controller('api/audits')
-@UseGuards(DevAuthGuard)
+@UseGuards(FirebaseAuthGuard)
 export class AuditsController {
   constructor(private readonly auditsService: AuditsService) {}
 

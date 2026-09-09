@@ -232,10 +232,10 @@ function ArchitectureDocs() {
           {[
             { name: 'Controls Service', desc: 'Manages security controls, policies, and evidence', port: '3001' },
             { name: 'Frameworks Service', desc: 'Handles compliance frameworks and requirements mapping', port: '3002' },
-            { name: 'Policies Service', desc: 'Policy document management and versioning', port: '3003' },
-            { name: 'Trust Service', desc: 'Trust Center, questionnaires, knowledge base', port: '3004' },
-            { name: 'Audit Service', desc: 'Audit management, findings, and remediation', port: '3005' },
-            { name: 'TPRM Service', desc: 'Third-party risk, vendors, contracts', port: '3006' },
+            { name: 'Policies Service', desc: 'Policy document management and versioning', port: '3004' },
+            { name: 'TPRM Service', desc: 'Third-party risk, vendors, contracts', port: '3005' },
+            { name: 'Trust Service', desc: 'Trust Center, questionnaires, knowledge base', port: '3006' },
+            { name: 'Audit Service', desc: 'Audit management, findings, and remediation', port: '3007' },
           ].map((service) => (
             <div key={service.name} className="bg-surface-800/50 border border-surface-700 rounded-lg p-4">
               <h4 className="font-semibold text-surface-200">{service.name}</h4>
@@ -275,7 +275,7 @@ function ArchitectureDocs() {
               </tr>
               <tr>
                 <td className="px-4 py-3 text-surface-300">Authentication</td>
-                <td className="px-4 py-3 text-surface-400">Keycloak (OIDC/OAuth 2.0)</td>
+                <td className="px-4 py-3 text-surface-400">Firebase Authentication (Google sign-in)</td>
               </tr>
               <tr>
                 <td className="px-4 py-3 text-surface-300">Container</td>
@@ -300,7 +300,7 @@ function ArchitectureDocs() {
             </li>
             <li className="flex gap-3">
               <span className="flex-shrink-0 w-6 h-6 bg-brand-600 text-white rounded-full flex items-center justify-center text-sm font-bold">3</span>
-              <span>Authentication validated via Keycloak</span>
+              <span>Firebase ID token verified by the service (identity only)</span>
             </li>
             <li className="flex gap-3">
               <span className="flex-shrink-0 w-6 h-6 bg-brand-600 text-white rounded-full flex items-center justify-center text-sm font-bold">4</span>
@@ -382,19 +382,19 @@ function ConfigurationDocs() {
                 <td className="px-4 py-3 text-surface-500 font-mono text-xs">64 hex characters</td>
               </tr>
               <tr>
-                <td className="px-4 py-3 text-surface-200 font-mono text-xs">KEYCLOAK_URL</td>
-                <td className="px-4 py-3 text-surface-400">Keycloak server URL</td>
-                <td className="px-4 py-3 text-surface-500 font-mono text-xs">http://localhost:8080</td>
+                <td className="px-4 py-3 text-surface-200 font-mono text-xs">AUTH_MODE</td>
+                <td className="px-4 py-3 text-surface-400">firebase for real sign-in, demo for local development only</td>
+                <td className="px-4 py-3 text-surface-500 font-mono text-xs">firebase</td>
               </tr>
               <tr>
-                <td className="px-4 py-3 text-surface-200 font-mono text-xs">KEYCLOAK_REALM</td>
-                <td className="px-4 py-3 text-surface-400">Keycloak realm name</td>
+                <td className="px-4 py-3 text-surface-200 font-mono text-xs">FIREBASE_PROJECT_ID</td>
+                <td className="px-4 py-3 text-surface-400">Firebase project whose ID tokens are accepted</td>
                 <td className="px-4 py-3 text-surface-500 font-mono text-xs">gigachad-grc</td>
               </tr>
               <tr>
-                <td className="px-4 py-3 text-surface-200 font-mono text-xs">KEYCLOAK_CLIENT_ID</td>
-                <td className="px-4 py-3 text-surface-400">Keycloak client ID</td>
-                <td className="px-4 py-3 text-surface-500 font-mono text-xs">grc-frontend</td>
+                <td className="px-4 py-3 text-surface-200 font-mono text-xs">ALLOWED_EMAIL_DOMAINS</td>
+                <td className="px-4 py-3 text-surface-400">Comma-separated email domains allowed to sign in</td>
+                <td className="px-4 py-3 text-surface-500 font-mono text-xs">example.com</td>
               </tr>
             </tbody>
           </table>
@@ -406,30 +406,37 @@ function ConfigurationDocs() {
         <CodeBlock 
           language="env"
           code={`# Database
-DATABASE_URL=postgresql://postgres:password@localhost:5432/gigachad_grc
+DATABASE_URL=postgresql://postgres:password@localhost:5433/gigachad_grc
 
 # Encryption (generate with: openssl rand -hex 32)
 ENCRYPTION_KEY=your-64-character-hex-key-here
 
-# Authentication (Keycloak)
-KEYCLOAK_URL=http://localhost:8080
-KEYCLOAK_REALM=gigachad-grc
-KEYCLOAK_CLIENT_ID=grc-frontend
-KEYCLOAK_CLIENT_SECRET=your-client-secret
+# Authentication (Firebase, Google sign-in only)
+AUTH_MODE=firebase
+FIREBASE_PROJECT_ID=your-firebase-project-id
+ALLOWED_EMAIL_DOMAINS=example.com
+AUTH_AUTO_PROVISION=false
+AUTH_DEFAULT_ORG_ID=
 
 # Service Ports
 CONTROLS_SERVICE_PORT=3001
 FRAMEWORKS_SERVICE_PORT=3002
-POLICIES_SERVICE_PORT=3003
-TRUST_SERVICE_PORT=3004
-AUDIT_SERVICE_PORT=3005
-TPRM_SERVICE_PORT=3006
+POLICIES_SERVICE_PORT=3004
+TPRM_SERVICE_PORT=3005
+TRUST_SERVICE_PORT=3006
+AUDIT_SERVICE_PORT=3007
 
-# Frontend
+# Frontend (build-time; the Firebase web API key is a public client
+# identifier, not a secret)
 VITE_API_URL=http://localhost:3001
-VITE_KEYCLOAK_URL=http://localhost:8080
-VITE_KEYCLOAK_REALM=gigachad-grc
-VITE_KEYCLOAK_CLIENT_ID=grc-frontend`}
+VITE_FIREBASE_API_KEY=your-firebase-web-api-key
+VITE_FIREBASE_AUTH_DOMAIN=your-firebase-project-id.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=your-firebase-project-id
+VITE_ALLOWED_EMAIL_DOMAIN=example.com
+
+# Local development only - bypasses sign-in with the seeded demo user
+# AUTH_MODE=demo
+# VITE_AUTH_MODE=demo`}
         />
       </section>
 
@@ -584,15 +591,13 @@ docker-compose exec controls npx prisma db seed`}
       <section>
         <h3 className="text-xl font-bold text-surface-100 mb-4">Health Checks</h3>
         <p className="text-surface-300 mb-4">
-          Verify all services are running:
+          The controls service exposes the only health endpoint; check the rest with Docker:
         </p>
         <CodeBlock 
           code={`# Check service health
-curl http://localhost:3001/health  # Controls service
-curl http://localhost:3002/health  # Frameworks service
-curl http://localhost:3003/health  # Policies service
+curl http://localhost:3001/api/system/health  # Controls service
 
-# Or use Docker
+# Container status for every service
 docker-compose ps`}
         />
       </section>
@@ -639,8 +644,8 @@ cd gigachad-grc
 # Install dependencies
 npm install
 
-# Start infrastructure (PostgreSQL, Keycloak)
-docker-compose -f docker-compose.dev.yml up -d
+# Start infrastructure (PostgreSQL, MinIO)
+docker-compose up -d postgres minio
 
 # Generate Prisma client
 npx prisma generate

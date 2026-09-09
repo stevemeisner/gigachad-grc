@@ -1,11 +1,11 @@
 import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards, Req } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { WorkpapersService, CreateWorkpaperDto, UpdateWorkpaperDto } from './workpapers.service';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { FirebaseAuthGuard } from '@gigachad-grc/shared';
 
 @ApiTags('Audit Workpapers')
 @ApiBearerAuth()
-@UseGuards(DevAuthGuard)
+@UseGuards(FirebaseAuthGuard)
 @Controller('workpapers')
 export class WorkpapersController {
   constructor(private readonly workpapersService: WorkpapersService) {}

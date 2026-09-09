@@ -264,7 +264,7 @@ export class GroupsService {
         user: {
           select: {
             id: true,
-            keycloakId: true,
+            externalId: true,
             email: true,
             displayName: true,
           },
@@ -275,7 +275,7 @@ export class GroupsService {
 
     return memberships.map(m => ({
       id: m.user.id,
-      keycloakId: m.user.keycloakId,
+      externalId: m.user.externalId,
       email: m.user.email,
       displayName: m.user.displayName,
       joinedAt: m.createdAt,

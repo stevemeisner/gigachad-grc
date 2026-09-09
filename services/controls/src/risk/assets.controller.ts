@@ -11,8 +11,7 @@ import {
   HttpStatus,
   UseGuards,
 } from '@nestjs/common';
-import { OrgId, UserEmail, UserId } from '@gigachad-grc/shared';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { FirebaseAuthGuard, OrgId, UserEmail, UserId } from '@gigachad-grc/shared';
 import { AssetsService } from './assets.service';
 import {
   AssetFilterDto,
@@ -21,7 +20,7 @@ import {
 } from './dto/asset.dto';
 
 @Controller('api/assets')
-@UseGuards(DevAuthGuard)
+@UseGuards(FirebaseAuthGuard)
 export class AssetsController {
   constructor(private readonly assetsService: AssetsService) {}
 

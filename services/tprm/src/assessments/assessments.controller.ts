@@ -12,11 +12,10 @@ import {
 import { AssessmentsService } from './assessments.service';
 import { CreateAssessmentDto } from './dto/create-assessment.dto';
 import { UpdateAssessmentDto } from './dto/update-assessment.dto';
-import { CurrentUser, UserContext } from '@gigachad-grc/shared';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { CurrentUser, FirebaseAuthGuard, UserContext } from '@gigachad-grc/shared';
 
 @Controller('assessments')
-@UseGuards(DevAuthGuard)
+@UseGuards(FirebaseAuthGuard)
 export class AssessmentsController {
   constructor(private readonly assessmentsService: AssessmentsService) {}
 

@@ -25,9 +25,9 @@ import { IsString, IsOptional, IsBoolean, IsNumber } from 'class-validator';
 import { FrameworksService } from './frameworks.service';
 import {
   CurrentUser,
+  FirebaseAuthGuard,
   UserContext,
 } from '@gigachad-grc/shared';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
 
 class CreateFrameworkDto {
   @ApiProperty()
@@ -102,7 +102,7 @@ export class FrameworksController {
   constructor(private readonly frameworksService: FrameworksService) {}
 
   @Get()
-  @UseGuards(DevAuthGuard)
+  @UseGuards(FirebaseAuthGuard)
   @ApiOperation({ summary: 'List all frameworks' })
   @ApiResponse({ status: 200, description: 'Returns list of frameworks with readiness' })
   async findAll(@CurrentUser() user: UserContext) {
@@ -110,7 +110,7 @@ export class FrameworksController {
   }
 
   @Post()
-  @UseGuards(DevAuthGuard)
+  @UseGuards(FirebaseAuthGuard)
   @ApiOperation({ summary: 'Create a new framework' })
   @ApiResponse({ status: 201, description: 'Framework created successfully' })
   @ApiBody({ type: CreateFrameworkDto })
@@ -135,7 +135,7 @@ export class FrameworksController {
   }
 
   @Put(':id')
-  @UseGuards(DevAuthGuard)
+  @UseGuards(FirebaseAuthGuard)
   @ApiOperation({ summary: 'Update a framework' })
   @ApiParam({ name: 'id', description: 'Framework ID' })
   @ApiBody({ type: CreateFrameworkDto })
@@ -148,7 +148,7 @@ export class FrameworksController {
   }
 
   @Delete(':id')
-  @UseGuards(DevAuthGuard)
+  @UseGuards(FirebaseAuthGuard)
   @ApiOperation({ summary: 'Delete a framework (soft delete)' })
   @ApiParam({ name: 'id', description: 'Framework ID' })
   @ApiResponse({ status: 200, description: 'Framework deleted successfully' })
@@ -170,7 +170,7 @@ export class FrameworksController {
   }
 
   @Post(':id/requirements')
-  @UseGuards(DevAuthGuard)
+  @UseGuards(FirebaseAuthGuard)
   @ApiOperation({ summary: 'Create a framework requirement' })
   @ApiParam({ name: 'id', description: 'Framework ID' })
   @ApiBody({ type: CreateRequirementDto })
@@ -183,7 +183,7 @@ export class FrameworksController {
   }
 
   @Post(':id/requirements/bulk-upload')
-  @UseGuards(DevAuthGuard)
+  @UseGuards(FirebaseAuthGuard)
   @UseInterceptors(FileInterceptor('file'))
   @ApiOperation({ summary: 'Bulk upload requirements from CSV, Excel, or JSON file' })
   @ApiParam({ name: 'id', description: 'Framework ID' })
@@ -196,7 +196,7 @@ export class FrameworksController {
   }
 
   @Get(':id/requirements/tree')
-  @UseGuards(DevAuthGuard)
+  @UseGuards(FirebaseAuthGuard)
   @ApiOperation({ summary: 'Get framework requirements as tree' })
   @ApiParam({ name: 'id', description: 'Framework ID' })
   async getRequirementTree(
@@ -216,7 +216,7 @@ export class FrameworksController {
   }
 
   @Put(':id/requirements/:requirementId')
-  @UseGuards(DevAuthGuard)
+  @UseGuards(FirebaseAuthGuard)
   @ApiOperation({ summary: 'Update requirement (owner, notes, due date, priority)' })
   @ApiParam({ name: 'id', description: 'Framework ID' })
   @ApiParam({ name: 'requirementId', description: 'Requirement ID' })
@@ -230,7 +230,7 @@ export class FrameworksController {
   }
 
   @Get(':id/readiness')
-  @UseGuards(DevAuthGuard)
+  @UseGuards(FirebaseAuthGuard)
   @ApiOperation({ summary: 'Calculate framework readiness score' })
   @ApiParam({ name: 'id', description: 'Framework ID' })
   async getReadiness(
@@ -244,7 +244,7 @@ export class FrameworksController {
 @ApiTags('users')
 @ApiBearerAuth()
 @Controller('api/users')
-@UseGuards(DevAuthGuard)
+@UseGuards(FirebaseAuthGuard)
 export class UsersController {
   constructor(private readonly frameworksService: FrameworksService) {}
 

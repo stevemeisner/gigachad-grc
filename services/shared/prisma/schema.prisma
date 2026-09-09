@@ -765,7 +765,7 @@ model NotificationConfiguration {
 
 model User {
   id             String     @id @default(uuid())
-  keycloakId     String     @unique @map("keycloak_id")
+  externalId     String     @unique @map("external_id")
   email          String
   firstName      String     @map("first_name")
   lastName       String     @map("last_name")

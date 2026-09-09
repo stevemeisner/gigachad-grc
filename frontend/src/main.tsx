@@ -11,7 +11,6 @@ import { WorkspaceProvider } from './contexts/WorkspaceContext';
 import { ModuleProvider } from './contexts/ModuleContext';
 import ErrorBoundary from './components/ErrorBoundary';
 import NetworkStatus from './components/NetworkStatus';
-import SessionWarning from './components/SessionWarning';
 // Error tracking auto-initializes on import (see lib/errorTracking.ts)
 import './lib/errorTracking';
 // Service worker for PWA support
@@ -122,7 +121,6 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
                   <WorkspaceProvider>
                     {/* Global UI components */}
                     <NetworkStatus />
-                    <SessionWarning warningThreshold={5 * 60 * 1000} />
                     <App />
                     <Toaster
                       position="top-right"

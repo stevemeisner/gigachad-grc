@@ -2,11 +2,11 @@ import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards, Req,
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { Response } from 'express';
 import { RemediationService, CreateRemediationPlanDto, CreateMilestoneDto, UpdateMilestoneDto } from './remediation.service';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { FirebaseAuthGuard } from '@gigachad-grc/shared';
 
 @ApiTags('Remediation Plans')
 @ApiBearerAuth()
-@UseGuards(DevAuthGuard)
+@UseGuards(FirebaseAuthGuard)
 @Controller('remediation')
 export class RemediationController {
   constructor(private readonly remediationService: RemediationService) {}

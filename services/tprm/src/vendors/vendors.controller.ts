@@ -13,11 +13,10 @@ import { VendorsService } from './vendors.service';
 import { VendorAIService } from '../ai/vendor-ai.service';
 import { CreateVendorDto } from './dto/create-vendor.dto';
 import { UpdateVendorDto } from './dto/update-vendor.dto';
-import { CurrentUser, UserContext } from '@gigachad-grc/shared';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { CurrentUser, FirebaseAuthGuard, UserContext } from '@gigachad-grc/shared';
 
 @Controller('vendors')
-@UseGuards(DevAuthGuard)
+@UseGuards(FirebaseAuthGuard)
 export class VendorsController {
   constructor(
     private readonly vendorsService: VendorsService,

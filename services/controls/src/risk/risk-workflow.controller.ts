@@ -9,7 +9,7 @@ import {
   HttpStatus,
   UseGuards,
 } from '@nestjs/common';
-import { OrgId, UserEmail, UserId } from '@gigachad-grc/shared';
+import { FirebaseAuthGuard, OrgId, UserEmail, UserId } from '@gigachad-grc/shared';
 import { 
   RiskWorkflowService,
   CreateRiskIntakeDto,
@@ -22,13 +22,12 @@ import {
   ExecutiveDecisionDto,
   MitigationUpdateDto,
 } from './risk-workflow.service';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
 import { PermissionGuard } from '../auth/permission.guard';
 import { RequirePermission } from '../auth/decorators/require-permission.decorator';
 import { Resource, Action } from '../permissions/dto/permission.dto';
 
 @Controller('api/risks/workflow')
-@UseGuards(DevAuthGuard, PermissionGuard)
+@UseGuards(FirebaseAuthGuard, PermissionGuard)
 export class RiskWorkflowController {
   constructor(private readonly workflowService: RiskWorkflowService) {}
 

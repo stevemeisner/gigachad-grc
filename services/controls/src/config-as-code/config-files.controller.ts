@@ -21,7 +21,7 @@ import {
   ApiParam,
   ApiQuery,
 } from '@nestjs/swagger';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { FirebaseAuthGuard } from '@gigachad-grc/shared';
 import { PermissionGuard } from '../auth/permission.guard';
 import { RequirePermission } from '../auth/decorators/require-permission.decorator';
 import { Resource, Action } from '../permissions/dto/permission.dto';
@@ -41,7 +41,7 @@ import {
 @ApiTags('config-as-code')
 @ApiBearerAuth()
 @Controller('api/config-as-code/files')
-@UseGuards(DevAuthGuard, PermissionGuard)
+@UseGuards(FirebaseAuthGuard, PermissionGuard)
 export class ConfigFilesController {
   private readonly logger = new Logger(ConfigFilesController.name);
 

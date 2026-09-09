@@ -25,13 +25,12 @@ import {
   RecordTestResultDto,
   CreateTestFindingDto,
 } from './dto/bcdr.dto';
-import { CurrentUser, UserContext } from '@gigachad-grc/shared';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { CurrentUser, FirebaseAuthGuard, UserContext } from '@gigachad-grc/shared';
 
 @ApiTags('bcdr/tests')
 @ApiBearerAuth()
 @Controller('api/bcdr/tests')
-@UseGuards(DevAuthGuard)
+@UseGuards(FirebaseAuthGuard)
 export class DRTestsController {
   constructor(private readonly testsService: DRTestsService) {}
 

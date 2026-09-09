@@ -4,7 +4,7 @@
 
 1. [System Overview](#system-overview)
 2. [Architecture Diagram](#architecture-diagram)
-3. [API Gateway (Traefik)](#api-gateway-traefik)
+3. [Ingress and Routing](#ingress-and-routing)
 4. [Microservices](#microservices)
 5. [Infrastructure Components](#infrastructure-components)
 6. [Network Architecture](#network-architecture)
@@ -28,11 +28,11 @@ GigaChad GRC is a comprehensive Governance, Risk, and Compliance (GRC) platform 
 | Layer | Technology |
 |-------|------------|
 | **Frontend** | React 18, TypeScript, Vite, TailwindCSS |
-| **API Gateway** | Traefik v3.0 |
+| **Ingress** | nginx (`gateway/nginx.conf`) behind Traefik v3.0 for TLS |
 | **Backend Services** | NestJS, Prisma ORM |
 | **Database** | PostgreSQL 16 |
 | **Object Storage** | MinIO (S3-compatible) |
-| **Authentication** | Keycloak 25 (OAuth 2.0 / OIDC) |
+| **Authentication** | Firebase Authentication (Google sign-in only); authorization from PostgreSQL |
 | **Container Orchestration** | Docker Compose / Kubernetes |
 
 ---
@@ -43,216 +43,150 @@ GigaChad GRC is a comprehensive Governance, Risk, and Compliance (GRC) platform 
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │                                   INTERNET                                       │
 └─────────────────────────────────────────────────────────────────────────────────┘
-                                        │
-                                        ▼
+                        │                                    │
+                        │ :443                               │ Google sign-in
+                        ▼                                    ▼
+┌──────────────────────────────────────────┐   ┌──────────────────────────────────┐
+│  TRAEFIK  (grc-dmz)                      │   │  FIREBASE AUTHENTICATION         │
+│  TLS termination, Let's Encrypt,         │   │  (external, Google-hosted)       │
+│  :80 → :443 redirect, rate limiting.     │   │  Issues the ID token the browser │
+│  Dashboard disabled. Talks to exactly    │   │  sends as a bearer credential.   │
+│  one app service: the gateway.           │   │  Identity only - no roles.       │
+└──────────────────────────────────────────┘   └──────────────────────────────────┘
+                        │
+                        ▼
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                            TRAEFIK API GATEWAY                                   │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐                  │
-│  │   TLS/HTTPS     │  │  Rate Limiting  │  │  Load Balancing │                  │
-│  │   Termination   │  │   Middleware    │  │   & Routing     │                  │
-│  └─────────────────┘  └─────────────────┘  └─────────────────┘                  │
+│                     NGINX GATEWAY  :80   (gateway/nginx.conf)                    │
 │                                                                                  │
-│  Entrypoints: :80 (HTTP→HTTPS redirect), :443 (HTTPS)                          │
-│  Dashboard: :8080 (internal only)                                               │
+│  The single public entrypoint. Owns ALL path routing: 53 /api prefixes in        │
+│  three rewrite classes (34 pass-through, 10 with /api stripped, 9 renamed),      │
+│  = /healthz for its own liveness, and the SPA fallback for everything else.      │
+│  Prefix matching is longest-match-wins, so the overlapping prefixes are safe     │
+│  by construction rather than by declaration order.                               │
 └─────────────────────────────────────────────────────────────────────────────────┘
-                                        │
-                    ┌───────────────────┼───────────────────┐
-                    │                   │                   │
-                    ▼                   ▼                   ▼
-┌──────────────────────┐  ┌──────────────────────┐  ┌──────────────────────┐
-│     FRONTEND         │  │     KEYCLOAK         │  │      MINIO           │
-│  ┌────────────────┐  │  │  ┌────────────────┐  │  │  ┌────────────────┐  │
-│  │  React SPA     │  │  │  │  Auth Server   │  │  │  │ Object Storage │  │
-│  │  :80 (nginx)   │  │  │  │  :8080         │  │  │  │ :9000 (API)    │  │
-│  └────────────────┘  │  │  └────────────────┘  │  │  │ :9001 (Console)│  │
-└──────────────────────┘  └──────────────────────┘  └──────────────────────┘
-                                        │
-┌───────────────────────────────────────┼─────────────────────────────────────────┐
-│                              MICROSERVICES LAYER                                 │
-│  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐ │
-│  │   CONTROLS     │  │   FRAMEWORKS   │  │   POLICIES     │  │     TPRM       │ │
-│  │   :3001        │  │   :3002        │  │   :3004        │  │   :3005        │ │
-│  │                │  │                │  │                │  │                │ │
-│  │ /api/controls  │  │ /api/frameworks│  │ /api/policies  │  │ /api/vendors   │ │
-│  │ /api/evidence  │  │ /api/risks     │  │                │  │ /api/contracts │ │
-│  │ /api/assets    │  │ /api/risk-*    │  │                │  │ /api/assess*   │ │
-│  └────────────────┘  └────────────────┘  └────────────────┘  └────────────────┘ │
-│                                                                                  │
-│  ┌────────────────┐  ┌────────────────┐                                         │
-│  │    TRUST       │  │    AUDIT       │                                         │
-│  │   :3006        │  │   :3007        │                                         │
-│  │                │  │                │                                         │
-│  │ /api/quest*    │  │ /api/audits    │                                         │
-│  │ /api/knowledge │  │ /api/audit-*   │                                         │
-│  │ /api/trust-*   │  │ /api/findings  │                                         │
-│  └────────────────┘  └────────────────┘                                         │
-└─────────────────────────────────────────────────────────────────────────────────┘
-                                        │
+           │                                        │
+           ▼ everything else                        ▼ /api/*
+┌──────────────────────┐   ┌─────────────────────────────────────────────────────┐
+│     FRONTEND         │   │                 MICROSERVICES LAYER                  │
+│  React SPA           │   │  ┌────────────┐ ┌────────────┐ ┌────────────┐       │
+│  nginx :3000         │   │  │  CONTROLS  │ │ FRAMEWORKS │ │  POLICIES  │       │
+│  (PORT is templated) │   │  │   :3001    │ │   :3002    │ │   :3004    │       │
+└──────────────────────┘   │  └────────────┘ └────────────┘ └────────────┘       │
+                           │  ┌────────────┐ ┌────────────┐ ┌────────────┐       │
+┌──────────────────────┐   │  │    TPRM    │ │   TRUST    │ │   AUDIT    │       │
+│      MINIO           │   │  │   :3005    │ │   :3006    │ │   :3007    │       │
+│  :9000 API           │   │  └────────────┘ └────────────┘ └────────────┘       │
+│  :9001 Console       │   │                                                      │
+│  (own hostname via   │   │  Every route is guarded by FirebaseAuthGuard, which  │
+│   Traefik)           │   │  verifies the token then loads role, permissions and │
+└──────────────────────┘   │  organization from PostgreSQL.                       │
+                           └─────────────────────────────────────────────────────┘
+                                                    │
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │                              DATA LAYER                                          │
-│  ┌────────────────────────────────────┐                                         │
-│  │          POSTGRESQL                │                                         │
-│  │          :5432                     │                                         │
-│  │                                    │                                         │
-│  │  Schemas:                          │                                         │
-│  │  - controls                        │                                         │
-│  │  - frameworks                      │                                         │
-│  │  - integrations                    │                                         │
-│  │  - policies                        │                                         │
-│  │  - shared                          │                                         │
-│  └────────────────────────────────────┘                                         │
+│  ┌───────────────────────────────────────────────────────────────────────────┐   │
+│  │  POSTGRESQL  :5432 (5433 published in development)                        │   │
+│  │  One database, one `public` schema, 129 Prisma models. The source of      │   │
+│  │  truth for the identity-to-user mapping, roles, permission groups and     │   │
+│  │  organizations.                                                           │   │
+│  └───────────────────────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
+
+There is no cache server, no message broker and no self-hosted identity server
+in this picture: caching is in-process, service-to-service calls are
+synchronous HTTP, and the identity provider is Google's hosted Firebase
+Authentication.
 
 ---
 
-## API Gateway (Traefik)
+## Ingress and Routing
 
-### Overview
+### Two layers, one entrypoint
 
-Traefik v3.0 serves as the API gateway and reverse proxy for all GigaChad GRC services. It provides:
+Production ingress (`docker-compose.prod.yml`) is two components with a strict
+division of labour:
 
-- **Automatic Service Discovery**: Via Docker labels
-- **TLS Termination**: Automatic HTTPS with Let's Encrypt
-- **Load Balancing**: Round-robin across service instances
-- **Rate Limiting**: Protection against abuse
-- **Request Routing**: Path-based routing to microservices
-- **Health Checks**: Continuous monitoring of backend services
+| Component | Owns | Does **not** own |
+|---|---|---|
+| **Traefik v3.0** | TLS termination and Let's Encrypt certificates, the `:80 → :443` redirect, edge rate limiting, and routing `Host(APP_DOMAIN)` to the gateway | Any path routing for the app. Its only app router is `gateway`; MinIO keeps its own host-based routers |
+| **nginx gateway** (`gateway/nginx.conf`) | All 53 `/api` prefixes, every path rewrite, `/healthz`, and the SPA fallback | TLS. It listens on plain `:80` inside the Compose network |
 
-### Configuration
+The per-service `PathPrefix` labels that used to live on the six API services
+have been removed. They could not express the ten `/api`-stripping and nine
+renaming routes the frontend depends on, and Traefik matches rules in
+declaration order, which made the overlapping prefixes fragile.
 
-#### Entry Points
+### The route table
 
-| Entry Point | Port | Purpose |
-|-------------|------|---------|
-| `web` | 80 | HTTP (redirects to HTTPS in production) |
-| `websecure` | 443 | HTTPS (primary entry point) |
-| `traefik` | 8080 | Dashboard (internal only) |
+`gateway/nginx.conf` is the production mirror of the Vite dev proxy table in
+`frontend/vite.config.ts`. **Both must change together** — a prefix present in
+one and absent from the other is a route that works in exactly one
+environment. The 53 prefixes fall into three classes:
 
-#### Static Configuration (`gateway/traefik.yml`)
+| Class | Count | Example | Mechanism |
+|---|---|---|---|
+| Pass-through | 34 | `/api/controls` → `controls:3001/api/controls` | `proxy_pass` with **no** URI part |
+| Strip `/api` | 10 | `/api/vendors/9` → `tprm:3005/vendors/9` | `proxy_pass` **with** a URI, which replaces the matched prefix |
+| Rename | 9 | `/api/vendor-assessments` → `tprm:3005/assessments`; `/api/audit/<mod>` → `audit:3007/<mod>` | same mechanism, different target path |
 
-```yaml
-# API Dashboard
-api:
-  dashboard: true
-  insecure: true  # Only in development
+**Precedence.** nginx prefix matching is longest-match-wins and independent of
+the order the blocks appear in the file. That is what makes overlapping
+prefixes such as `/api/frameworks/catalog` (controls) versus `/api/frameworks`
+(frameworks), and the `/api/audit/*` modules versus `/api/audits`, safe here —
+the same set of prefixes **is** order-sensitive in the Vite dev proxy, so the
+two files are not interchangeable line for line.
 
-# Logging
-log:
-  level: INFO
-  format: common
+### Which service owns which prefix
 
-accessLog:
-  format: common
+| Service | Port | Prefixes it owns |
+|---|---|---|
+| controls | 3001 | `/api/controls`, `/api/evidence`, `/api/implementations`, `/api/dashboard(s)`, `/api/comments`, `/api/tasks`, `/api/integrations`, `/api/notifications`, `/api/users`, `/api/permissions`, `/api/risks`, `/api/assets`, `/api/risk-config`, `/api/risk-scenarios`, `/api/seed`, `/api/employee-compliance`, `/api/training`, `/api/ai`, `/api/mcp`, `/api/system`, `/api/bulk`, `/api/modules`, `/api/config-as-code`, `/api/workspaces`, `/api/frameworks/catalog` |
+| frameworks | 3002 | `/api/frameworks`, `/api/assessments`, `/api/mappings` |
+| policies | 3004 | `/api/policies` |
+| tprm | 3005 | `/api/vendors`, `/api/contracts`, `/api/vendor-assessments`, `/api/tprm-config` |
+| trust | 3006 | `/api/questionnaires`, `/api/knowledge-base`, `/api/trust-center`, `/api/trust-config`, `/api/answer-templates`, `/api/trust-ai` |
+| audit | 3007 | `/api/audits`, `/api/audit-requests`, `/api/findings`, `/api/audit/templates`, `/api/audit/workpapers`, `/api/audit/test-procedures`, `/api/audit/remediation`, `/api/audit/analytics`, `/api/audit/planning`, `/api/audit/reports` |
 
-# Entry Points
-entryPoints:
-  web:
-    address: ":80"
-  websecure:
-    address: ":443"
+Evidence is served by **controls**, not by a service of its own. Nothing
+listens on port 3003.
 
-# Docker Provider
-providers:
-  docker:
-    endpoint: "unix:///var/run/docker.sock"
-    exposedByDefault: false  # Must explicitly enable services
-    network: grc-network
-    watch: true
+### Rate limiting
 
-# Health Check Endpoint
-ping:
-  entryPoint: web
-```
+Traefik applies an edge limit to the gateway router
+(`docker-compose.prod.yml`):
 
-### Routing Configuration
+| Setting | Value |
+|---|---|
+| `ratelimit.average` | 200 requests/second |
+| `ratelimit.burst` | 100 |
 
-Routes are defined via Docker labels on each service. The pattern:
+Each service also throttles in-process — see
+[Scalability Considerations](#scalability-considerations) for why that limit is
+per-replica.
 
-```yaml
-labels:
-  - "traefik.enable=true"
-  - "traefik.http.routers.{name}.rule=Host(`${APP_DOMAIN}`) && PathPrefix(`/api/{path}`)"
-  - "traefik.http.routers.{name}.entrypoints=websecure"
-  - "traefik.http.routers.{name}.tls.certresolver=letsencrypt"
-  - "traefik.http.services.{name}.loadbalancer.server.port={port}"
-```
-
-### API Route Mapping
-
-| Route Prefix | Service | Port | Description |
-|--------------|---------|------|-------------|
-| `/api/controls` | controls | 3001 | Security controls management |
-| `/api/evidence` | controls | 3001 | Evidence/artifact management |
-| `/api/assets` | controls | 3001 | Asset inventory |
-| `/api/implementations` | controls | 3001 | Control implementations |
-| `/api/ai` | controls | 3001 | AI configuration and features |
-| `/api/mcp` | controls | 3001 | MCP server management |
-| `/api/training` | controls | 3001 | Training management |
-| `/api/frameworks` | frameworks | 3002 | Compliance frameworks |
-| `/api/risks` | frameworks | 3002 | Risk register |
-| `/api/risk-config` | frameworks | 3002 | Risk configuration |
-| `/api/policies` | policies | 3004 | Policy management |
-| `/api/vendors` | tprm | 3005 | Vendor management |
-| `/api/assessments` | tprm | 3005 | Vendor assessments |
-| `/api/contracts` | tprm | 3005 | Contract management |
-| `/api/questionnaires` | trust | 3006 | Security questionnaires |
-| `/api/knowledge-base` | trust | 3006 | Knowledge base entries |
-| `/api/trust-center` | trust | 3006 | Public trust center |
-| `/api/audits` | audit | 3007 | Audit management |
-| `/api/audit-requests` | audit | 3007 | Evidence requests |
-| `/api/audit-findings` | audit | 3007 | Audit findings |
-| `/api/audit-portal` | audit | 3007 | Auditor portal |
-
-### Rate Limiting
-
-Traefik applies rate limiting middleware to protect services:
+### TLS
 
 ```yaml
-labels:
-  - "traefik.http.middlewares.{service}-ratelimit.ratelimit.average=100"
-  - "traefik.http.middlewares.{service}-ratelimit.ratelimit.burst=50"
-  - "traefik.http.routers.{service}.middlewares={service}-ratelimit"
+# docker-compose.prod.yml, traefik command
+- "--certificatesresolvers.letsencrypt.acme.httpchallenge=true"
+- "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
+- "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL}"
+- "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+- "--entrypoints.web.http.redirections.entryPoint.to=websecure"
+- "--entrypoints.web.http.redirections.entryPoint.scheme=https"
 ```
 
-| Setting | Value | Description |
-|---------|-------|-------------|
-| `average` | 100 | Requests per second (average) |
-| `burst` | 50 | Maximum burst size |
+The Traefik dashboard is switched off in production
+(`--api.dashboard=false`).
 
-### TLS Configuration (Production)
+### Development
 
-```yaml
-command:
-  # Automatic HTTPS via Let's Encrypt
-  - "--certificatesresolvers.letsencrypt.acme.httpchallenge=true"
-  - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
-  - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL}"
-  - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
-  
-  # HTTP to HTTPS redirect
-  - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
-  - "--entrypoints.web.http.redirections.entryPoint.scheme=https"
-```
-
-### Dashboard Access
-
-- **Development**: `http://localhost:8090`
-- **Production**: Disabled by default for security
-
-To access the dashboard in production, use port forwarding:
-
-```bash
-kubectl port-forward svc/traefik 8080:8080
-```
-
-### Health Check Endpoints
-
-| Endpoint | Description |
-|----------|-------------|
-| `/ping` | Traefik health check |
-| `/api` | Traefik API (if enabled) |
-| `/dashboard/` | Web dashboard (if enabled) |
+The demo (`./scripts/start-demo.sh`) uses neither component: the Vite dev
+server proxies `/api/*` straight to the six host processes. The container stack
+in `docker-compose.yml` still carries legacy Traefik `PathPrefix` labels for a
+subset of prefixes and is not the supported production topology —
+`docker-compose.prod.yml` plus `gateway/nginx.conf` is.
 
 ---
 
@@ -273,9 +207,12 @@ kubectl port-forward svc/traefik 8080:8080
 
 Each service includes:
 
-- **Health Endpoints**: `/health`, `/health/live`, `/health/ready`
+- **Health Endpoints**: `/health`, `/health/live`, `/health/ready` — the shared
+  `HealthModule` from `@gigachad-grc/shared`, wired into all six services
+- **Authentication**: `FirebaseAuthGuard` on every route (99 `@UseGuards`
+  sites), plus `PermissionGuard` where a specific permission is required
 - **Rate Limiting**: In-service rate limiting middleware
-- **Caching**: In-memory cache with configurable TTL
+- **Caching**: In-process cache with configurable TTL
 - **Global Exception Filter**: Standardized error responses
 - **Compression**: Gzip response compression
 - **Security Headers**: Helmet middleware integration
@@ -283,10 +220,19 @@ Each service includes:
 ### Health Check Endpoints
 
 ```
-GET /health        # Full health check (DB, memory, etc.)
+GET /health        # Full health check (database, memory)
 GET /health/live   # Liveness probe (is the service running?)
 GET /health/ready  # Readiness probe (is the service ready for traffic?)
 ```
+
+The controls service additionally exposes `GET /api/system/health` —
+unauthenticated, and the endpoint worth probing from outside a deployment
+because it is reachable through the gateway. It answers
+`{"status":"healthy","timestamp":…,"service":"controls","version":…}` and is a
+liveness ping, not a dependency check. Its richer siblings under `/api/system`
+(`health/detailed`, `backup/status`, `setup/status`, `production-readiness`,
+`warnings`) report database and configuration detail and all require an
+authenticated administrator.
 
 Response format:
 
@@ -348,17 +294,40 @@ in front of PostgreSQL.
 - `policies` - Policy documents
 - `integrations` - Integration data
 
-### Keycloak Authentication
+### Identity: Firebase Authentication
 
-- **Version**: 25
-- **Port**: 8080
-- **Protocol**: OAuth 2.0 / OpenID Connect
+There is no identity server in the deployment. Sign-in is Google's hosted
+Firebase Authentication with the **Google provider only**; the app holds no
+passwords and runs no login UI of its own beyond a button.
 
-**Features**:
-- Single Sign-On (SSO)
-- Multi-factor authentication
-- Role-based access control
-- Social identity providers
+- **Protocol**: OpenID Connect. The browser receives a Firebase ID token
+  (RS256 JWT) and sends it as `Authorization: Bearer <token>`.
+- **Verification**: `FirebaseAuthGuard`
+  (`services/shared/src/auth/firebase-auth.guard.ts`) fetches Google's signing
+  keys from
+  `https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com`
+  and pins the algorithm (`RS256`), the issuer
+  (`https://securetoken.google.com/<FIREBASE_PROJECT_ID>`) and the audience
+  (`FIREBASE_PROJECT_ID`).
+- **Additional assertions**: `email_verified` must be true, the sign-in
+  provider must be `google.com`, and `auth_time` must not be in the future.
+
+**The token carries identity only.** Role, permissions and organization are
+read from the `users` row on every request, keyed by `users.external_id` =
+the token's `sub`. Nothing authorization-relevant is trusted from a claim,
+because provider claims refresh at most hourly — a demoted administrator would
+otherwise keep their old role until the token expired.
+
+**Who may sign in** is enforced in two places:
+
+| Layer | Mechanism |
+|---|---|
+| Email domain | `ALLOWED_EMAIL_DOMAINS` compared against the verified email suffix. A Firebase ID token carries no `hd` (hosted-domain) claim, so the suffix is the only signal available |
+| Provisioning | A `users` row must exist. With `AUTH_AUTO_PROVISION=false` (the default) an unknown address is rejected with 401 |
+
+**The single bypass** is `AUTH_MODE=demo`, which skips token verification and
+loads the seeded demo identity through the same database path. It refuses to
+initialise when `NODE_ENV=production`.
 
 ---
 
@@ -394,7 +363,7 @@ networks:
 
 | Zone | Network | Purpose | Components |
 |------|---------|---------|------------|
-| DMZ | grc-dmz | External-facing | Traefik, Frontend, Keycloak, MinIO |
+| DMZ | grc-dmz | External-facing | Traefik, nginx gateway, MinIO |
 | Internal | grc-network | Backend services | All microservices, PostgreSQL |
 
 ---
@@ -407,13 +376,13 @@ networks:
 ┌─────────────────────────────────────────────────────────────┐
 │ Layer 1: Network Perimeter                                  │
 │ - Traefik TLS termination                                   │
-│ - Rate limiting (100 req/min)                               │
-│ - IP filtering (optional)                                   │
+│ - Edge rate limiting (200 req/s average, burst 100)         │
+│ - nginx gateway is the only reachable app service           │
 ├─────────────────────────────────────────────────────────────┤
 │ Layer 2: Authentication                                     │
-│ - Keycloak OAuth 2.0 / OIDC                                │
-│ - JWT validation                                            │
-│ - Session management                                        │
+│ - Firebase ID token (RS256, JWKS-verified)                  │
+│ - Issuer and audience pinned to the Firebase project        │
+│ - Google sign-in only; verified email required              │
 ├─────────────────────────────────────────────────────────────┤
 │ Layer 3: Authorization                                      │
 │ - Role-based access control (RBAC)                         │
@@ -463,34 +432,41 @@ tmpfs:
 ### Request Flow (Authenticated)
 
 ```
-1. Client Request
+1. Browser signs in with Google (Firebase) and holds an ID token
    │
    ▼
-2. Traefik (TLS termination, rate limiting)
+2. Traefik: TLS termination, edge rate limiting
    │
    ▼
-3. Service receives request with headers:
-   - Authorization: Bearer <JWT>
-   - x-user-id: <user-uuid>
-   - x-organization-id: <org-uuid>
+3. nginx gateway: longest-prefix match on the path, proxy to the owning
+   service (rewriting /api away where that service expects it)
    │
    ▼
-4. Service validates JWT (optional Keycloak verification)
+4. Service receives the request with one credential that matters:
+   - Authorization: Bearer <Firebase ID token>
    │
    ▼
-5. Service checks authorization (RBAC)
+5. FirebaseAuthGuard verifies signature, issuer, audience, provider and
+   verified email, then loads the `users` row and builds `request.user`
+   (userId, organizationId, role, status). Identity is NEVER taken from a
+   client-supplied header such as `x-user-id` — those are forgeable.
    │
    ▼
-6. Service processes request
+6. PermissionGuard resolves the required permission from the database:
+   permission group grants, then per-user overrides, then a fallback derived
+   from `users.role`
+   │
+   ▼
+7. Service processes request
    │
    ├─► Check in-process cache
    │
-   ├─► Query PostgreSQL
+   ├─► Query PostgreSQL (always scoped by organizationId)
    │
    └─► Access MinIO (if files)
    │
    ▼
-7. Response with security headers
+8. Response with security headers
    - X-Content-Type-Options: nosniff
    - X-Frame-Options: DENY
    - etc.
@@ -502,9 +478,10 @@ Services communicate **synchronously over HTTP** today. There is no message
 broker, no queue and no event bus: a service that needs data owned by another
 service calls that service's REST API and waits for the response.
 
-An asynchronous event bus (Redis pub/sub) was designed and partially written,
-but it was never wired into any service — no code ever published or subscribed
-to an event — so it has been removed rather than left as misleading scaffolding.
+An asynchronous event bus was designed and partially written against a pub/sub
+server, but it was never wired into any service — no code ever published or
+subscribed to an event — so both the bus and its server have been removed
+rather than left as misleading scaffolding.
 If asynchronous fan-out is needed later, it should be designed against the
 requirement that actually motivates it.
 
@@ -530,10 +507,12 @@ must be solved before running more than one:
 
 ### Load Balancing
 
-Traefik automatically load balances across service replicas:
+Traefik load balances across replicas of the gateway, and the gateway across
+replicas of a service, using plain DNS round-robin inside the Compose network:
 
-```yaml
-- "traefik.http.services.controls.loadbalancer.server.port=3001"
+```nginx
+# gateway/nginx.conf
+location /api/controls { proxy_pass http://controls:3001; }
 ```
 
 ### Database Scaling
@@ -567,7 +546,8 @@ deploy:
 ## Next Steps
 
 - [API Documentation](./API.md) - Detailed API reference
-- [Deployment Guide](./DEPLOYMENT.md) - Production deployment steps
+- [Deployment Runbook](./DEPLOYMENT-RUNBOOK.md) - Start-to-finish production deployment
+- [Hosting Requirements](./HOSTING-REQUIREMENTS.md) - What it needs and what it costs
 - [Configuration Reference](./CONFIGURATION.md) - Environment variables
 - [Development Guide](./DEVELOPMENT.md) - Local development setup
 

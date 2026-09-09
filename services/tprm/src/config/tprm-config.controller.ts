@@ -8,13 +8,12 @@ import {
   Param,
   UseGuards,
 } from '@nestjs/common';
-import { OrgId, UserId } from '@gigachad-grc/shared';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { FirebaseAuthGuard, OrgId, UserId } from '@gigachad-grc/shared';
 import { TprmConfigService } from './tprm-config.service';
 import { UpdateTprmConfigurationDto, VendorCategoryDto } from './dto/tprm-config.dto';
 
 @Controller('tprm-config')
-@UseGuards(DevAuthGuard)
+@UseGuards(FirebaseAuthGuard)
 export class TprmConfigController {
   constructor(private readonly tprmConfigService: TprmConfigService) {}
 

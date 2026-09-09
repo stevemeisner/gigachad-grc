@@ -24,16 +24,16 @@ import {
   UpdateRemediationTaskDto,
 } from './dto/assessment.dto';
 import {
-  Roles,
   CurrentUser,
+  FirebaseAuthGuard,
+  Roles,
   UserContext,
 } from '@gigachad-grc/shared';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
 
 @ApiTags('assessments')
 @ApiBearerAuth()
 @Controller('api/assessments')
-@UseGuards(DevAuthGuard)
+@UseGuards(FirebaseAuthGuard)
 export class AssessmentsController {
   constructor(private readonly assessmentsService: AssessmentsService) {}
 

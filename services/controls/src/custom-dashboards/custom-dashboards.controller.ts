@@ -25,13 +25,12 @@ import {
   UpdateWidgetDto,
   ExecuteQueryDto,
 } from './dto/dashboard.dto';
-import { CurrentUser, UserContext } from '@gigachad-grc/shared';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { CurrentUser, FirebaseAuthGuard, UserContext } from '@gigachad-grc/shared';
 
 @ApiTags('dashboards')
 @ApiBearerAuth()
 @Controller('api/dashboards')
-@UseGuards(DevAuthGuard)
+@UseGuards(FirebaseAuthGuard)
 export class CustomDashboardsController {
   constructor(private readonly dashboardsService: CustomDashboardsService) {}
 

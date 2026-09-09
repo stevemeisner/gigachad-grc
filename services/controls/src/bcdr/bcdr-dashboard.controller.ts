@@ -12,13 +12,12 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { BCDRDashboardService } from './bcdr-dashboard.service';
-import { CurrentUser, UserContext } from '@gigachad-grc/shared';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { CurrentUser, FirebaseAuthGuard, UserContext } from '@gigachad-grc/shared';
 
 @ApiTags('bcdr/dashboard')
 @ApiBearerAuth()
 @Controller('api/bcdr/dashboard')
-@UseGuards(DevAuthGuard)
+@UseGuards(FirebaseAuthGuard)
 export class BCDRDashboardController {
   constructor(private readonly dashboardService: BCDRDashboardService) {}
 

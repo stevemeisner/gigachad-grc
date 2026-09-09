@@ -31,13 +31,13 @@ tail -30 .demo/logs/frontend.log
 grep -i error .demo/logs/*.log
 ```
 
-Infrastructure (PostgreSQL, Keycloak, MinIO) runs in Docker, so those
-logs come from Compose:
+Infrastructure (PostgreSQL, MinIO) runs in Docker, so those logs come from
+Compose:
 
 ```bash
 docker compose ps
 docker compose logs postgres
-docker compose logs -f keycloak
+docker compose logs -f minio
 ```
 
 ---
@@ -95,7 +95,6 @@ lsof -nP -iTCP:5433 -sTCP:LISTEN
 | 3000 | frontend (Vite dev server) |
 | 3001 / 3002 / 3004 / 3005 / 3006 / 3007 | controls / frameworks / policies / tprm / trust / audit |
 | 5433 | PostgreSQL (container port 5432) |
-| 8080 | Keycloak |
 | 9000 / 9001 | MinIO API / console |
 
 Nothing runs on 3003 — that port belongs to Grafana in `docker-compose.yml`,
@@ -167,114 +166,96 @@ docker network inspect gigachad-grc_grc-network
 
 ## Authentication Problems
 
-> **The development stack has no authentication.** Every controller is wired to
-> `DevAuthGuard`, which fabricates a full-permission admin from any request; the
-> real JWKS-validating `JwtAuthGuard` in
-> `services/shared/src/auth/jwt.guard.ts` is bound to zero controllers. Bind
-> the demo to loopback only and never expose it to a network.
+> **The local demo runs with `AUTH_MODE=demo`.** That is the single auth
+> bypass in the system: `FirebaseAuthGuard`
+> (`services/shared/src/auth/firebase-auth.guard.ts`) skips Firebase ID-token
+> verification and serves every request as the seeded demo admin
+> (`john.doe@example.com`, `external_id` = `demo-user`). It still resolves that
+> identity from PostgreSQL through the same code path a real Google sign-in
+> uses, and it refuses to start when `NODE_ENV=production`. Keep the demo bound
+> to loopback and never expose it to a network.
 
-### "Invalid redirect URI" from Keycloak
+### Services refuse to start: "AUTH_MODE=demo" and production
 
-**Symptom:** Keycloak answers with an "Invalid redirect uri" page instead of
-the login screen.
+**Symptom:** Every service exits during boot, or `start-demo.sh` reports that a
+port never opened. The service log contains a message about `AUTH_MODE=demo`
+not being permitted with `NODE_ENV=production`.
 
-**Solution:**
-
-Open the app at `http://localhost:3000`. The Keycloak client shipped in
-`auth/realm-export.json` (realm `gigachad-grc`, client `grc-frontend`) allows
-only these values:
-
-| Setting | Allowed values |
-|---------|----------------|
-| Valid redirect URIs | `http://localhost:3000/*`, `http://localhost/*` |
-| Web origins | `http://localhost:3000`, `http://localhost`, `+` |
-
-`http://127.0.0.1:3000` is **not** on that list, so loading the app on
-127.0.0.1 produces this error even though the frontend is serving correctly.
-
-To allow another hostname (or for production), add it in the Keycloak Admin
-Console at `http://localhost:8080` → realm `gigachad-grc` → Clients →
-`grc-frontend`, under *Valid redirect URIs* and *Web origins*. The admin
-credentials come from `KEYCLOAK_ADMIN` / `KEYCLOAK_ADMIN_PASSWORD` in `.env`.
-
-### "Token validation failed"
-
-**Symptom:** API requests fail with 401 after successful login.
+**Cause:** `FirebaseAuthGuard` asserts this in its constructor, so the failure
+happens at boot rather than on the first request. `.env` was seeded from a
+production template (`deploy/env.example` sets `NODE_ENV=production`).
 
 **Solution:**
 
-In development this cannot be a token problem: `DevAuthGuard` never validates
-one. A 401 in the demo means the request never reached a service — see *One
-page works but another tab errors* — and a 500 usually means
-`NODE_ENV=production` in `.env`. The steps below apply to a deployment that
-uses real Keycloak tokens.
-
-1. Check the token is being stored (`grc_token`, see
-   `frontend/src/lib/secureStorage.ts`):
-```javascript
-// In browser console
-console.log(sessionStorage.getItem('grc_token'));
-```
-
-2. Verify the token is being sent:
-```javascript
-// Check network tab in browser DevTools
-// Look for Authorization header in requests
-```
-
-3. Ensure backend and frontend agree on the realm — `gigachad-grc` in
-   `env.development`, with clients `grc-frontend` (SPA) and `grc-services`
-   (backend):
-```bash
-grep -E '^(VITE_)?KEYCLOAK_(URL|REALM|CLIENT_ID)' .env
-```
-
-### Dev login not working
-
-**Symptom:** Development authentication bypass doesn't work.
-
-**Solution:**
-
-The Dev Login button is gated on Vite's `import.meta.env.DEV`, so it is present
-in any dev-server build. `VITE_ENABLE_DEV_AUTH` does **not** enable it — that
-variable exists only so a production build fails loudly if dev auth is left
-switched on, and setting it fixes nothing. There are three real causes:
-
-1. **`.env` sets `NODE_ENV=production`.** `DevAuthGuard`
-   (`services/*/src/auth/dev-auth.guard.ts`) throws in production, so every
-   controls endpoint answers HTTP **500** rather than 401 and the UI shows
-   errors everywhere, not just at login:
 ```bash
 grep '^NODE_ENV' .env      # must be development
 mv .env .env.production.bak && cp env.development .env
 ```
-   `./scripts/start-demo.sh` refuses to start against such a `.env`. Older
-   versions of the script seeded `.env` from `deploy/env.example`, which sets
-   `NODE_ENV=production`; use `env.development` for local work.
 
-2. **The page was opened on `127.0.0.1:3000`.** Keycloak only allows
-   `http://localhost:3000/*` as a redirect URI, so the login screen is replaced
-   by an "Invalid redirect uri" page. Use `http://localhost:3000`.
+`./scripts/start-demo.sh` refuses to start against a `.env` that sets
+`NODE_ENV=production`. Use `env.development` for local work.
 
-3. **Keycloak is not running.** `frontend/src/contexts/AuthContext.tsx` calls
-   `keycloak.init({ onLoad: 'check-sso' })` on every page load, so a missing
-   Keycloak fails with `ERR_CONNECTION_REFUSED` before the login screen renders
-   — even though the demo itself signs in with Dev Login and never validates a
-   token. Keycloak is therefore required:
+### The "Dev Login (Skip SSO)" button is missing
+
+**Symptom:** The login page offers only *Sign in with Google*.
+
+**Cause:** `frontend/src/contexts/AuthContext.tsx` gates the demo button on
+`import.meta.env.DEV && import.meta.env.VITE_AUTH_MODE === 'demo'`. Your `.env`
+predates that variable, or the dev server was started before it was added.
+
+**Solution:**
+
 ```bash
-docker compose ps keycloak
-curl -sf http://localhost:8080/realms/gigachad-grc >/dev/null && echo ok
+grep '^VITE_AUTH_MODE' .env    # expect: VITE_AUTH_MODE=demo
 ```
 
-If the button appears but clicking it leaves you on the login page, clear stale
-auth state:
+`env.development` sets it. If your `.env` is an older copy, add the line and
+restart the dev server — Vite reads `.env` only at startup. In a production
+build the branch is dead code regardless: Vite compiles `import.meta.env.DEV`
+to `false`.
 
-```javascript
-// In the browser console
-localStorage.clear();
-sessionStorage.clear();
-location.reload();
+### Signed in with Google but every request is 401 or 403
+
+**Symptom:** Google sign-in succeeds, then the API rejects the session.
+
+**Cause:** The Firebase ID token proves identity only. Further checks run in
+`FirebaseAuthGuard` after the signature verifies, each with its own status code
+and message:
+
+| Response | Meaning | Fix |
+|---|---|---|
+| **401** "No account is provisioned for &lt;email&gt;" | No `users` row matches the token's `sub` or its email, and `AUTH_AUTO_PROVISION` is not `true` | Insert the row (see the [Deployment Runbook](./DEPLOYMENT-RUNBOOK.md#6-create-the-first-administrator)) |
+| **403** "Email domain … is not permitted" | The address is outside `ALLOWED_EMAIL_DOMAINS` | Add the domain to that variable and restart the services |
+| **403** "This account is … and cannot be used to sign in" | The `users` row exists but `status` is not `active` | `UPDATE users SET status = 'active' WHERE email = '…';` |
+| **401** "Sign-in provider … is not accepted" | The token came from a provider other than Google | Only Google sign-in is accepted |
+| **401** "Firebase ID token has expired" | Clock skew, or a token cached in the browser | Reload the page to force a token refresh |
+
+A verified identity is cached for 30 seconds, so a database fix can take that
+long to take effect.
+
+### Google sign-in itself fails, or the popup is blocked
+
+**Symptom:** The Google popup closes with an error, or reports an unauthorized
+domain.
+
+**Solution:**
+
+1. Confirm the browser build has Firebase configuration. The three values are
+   compiled into the bundle, so a change needs a rebuild:
+```bash
+grep -E '^VITE_FIREBASE_(API_KEY|AUTH_DOMAIN|PROJECT_ID)' .env
 ```
+
+2. The origin you loaded the app on must be listed in the Firebase console
+   under **Authentication → Settings → Authorized domains**. That list controls
+   which origins may complete a sign-in; it does not decide *who* may sign in.
+
+3. Use `http://localhost:3000`, not `http://127.0.0.1:3000`: `CORS_ORIGINS` in
+   `env.development` lists the former, and the two are different origins to
+   both the browser and Firebase.
+
+4. The Firebase Web API key is a **public** client identifier, not a secret.
+   A leaked key is not the cause of a sign-in failure.
 
 ---
 
@@ -312,11 +293,11 @@ docker compose exec postgres psql -U grc -d gigachad_grc -c "\dt"
 
 ### `prisma db push` refuses: "The database contains tables Prisma does not manage"
 
-**Cause:** Keycloak used to share the application database, putting ~90 of its
-tables into the same `public` schema Prisma owns. Keycloak now uses a dedicated
-`keycloak` database (`database/bootstrap/00-create-keycloak-db.sql`), but a
-postgres volume created before that change still holds the old tables, and
-`db push` offers to drop them rather than continue.
+**Cause:** A postgres volume created by an older revision of this project. The
+identity server that used to run beside the app kept ~90 of its own tables in
+the same `public` schema Prisma owns; it has been removed entirely, but a
+pre-existing volume still holds those tables and `db push` offers to drop them
+rather than continue.
 
 **Solution:** recreate the volume — this deletes local demo data only.
 
@@ -360,7 +341,7 @@ that demo data could not be loaded, or `POST /api/seed/load-demo` answers
 HTTP 500.
 
 **Cause:** In development every controller authenticates through
-`DevAuthGuard`, which injects one fixed organization and user. The seeder
+`AUTH_MODE=demo`, which resolves the one seeded organization and user. The seeder
 writes rows that reference both, so when those two rows are missing Prisma
 fails with `P2025` ("Record to update not found").
 `database/dev-bootstrap.sql` inserts them, and `start-demo.sh` applies it right
@@ -412,7 +393,8 @@ Data**, which is also where you reset it.
 different port, or the page loads white with module errors in the console.
 
 **Cause:** Vite normally falls back to the next free port when 3000 is taken,
-which silently breaks the Keycloak redirect URI. The demo now passes
+which silently breaks `CORS_ORIGINS` and any configured Firebase Authorized
+domain. The demo now passes
 `--strictPort`, so it fails loudly instead. A blank page after dependencies
 changed usually means a stale `frontend/node_modules/.vite` cache.
 
@@ -435,8 +417,8 @@ lsof -nP -iTCP:3000 -sTCP:LISTEN
 ./scripts/start-demo.sh
 ```
 
-4. Always open `http://localhost:3000` — `127.0.0.1:3000` is rejected by
-   Keycloak's redirect-URI check.
+4. Always open `http://localhost:3000` — `127.0.0.1:3000` is a different
+   origin, and it is not in `CORS_ORIGINS`.
 
 ### "Failed to fetch" errors
 
@@ -515,11 +497,18 @@ tail -50 .demo/logs/tprm.log
 ./scripts/stop-demo.sh && ./scripts/start-demo.sh
 ```
 
-Only the controls service exposes a health route
-(`GET http://localhost:3001/api/system/health`, which returns
-`{"status":"healthy",...}`). The other five do not wire the shared health
-module, so `/health` and `/api/health` return 404 on them — readiness for those
-is a TCP port check, as above.
+All six services wire the shared health module, so each answers `GET /health`
+(plus `/health/live` and `/health/ready`) on its own port. The controls service
+additionally serves the richer, unauthenticated
+`GET http://localhost:3001/api/system/health`, which returns
+`{"status":"healthy",...}` with database detail:
+
+```bash
+for p in 3001 3002 3004 3005 3006 3007; do
+  printf '%s ' "$p"; curl -sf "http://localhost:$p/health" >/dev/null \
+    && echo ok || echo FAIL
+done
+```
 
 ### Service won't start
 

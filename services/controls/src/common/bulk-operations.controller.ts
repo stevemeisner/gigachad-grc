@@ -11,12 +11,11 @@ import {
   ApiBearerAuth,
 } from '@nestjs/swagger';
 import { IsArray, IsString, IsIn, ArrayMaxSize, ArrayMinSize } from 'class-validator';
-import { DevAuthGuard, User } from '../auth/dev-auth.guard';
 import { PermissionGuard } from '../auth/permission.guard';
 import { RequirePermission } from '../auth/decorators/require-permission.decorator';
 import { Resource, Action } from '../permissions/dto/permission.dto';
 import { BulkOperationsService, BulkDeleteResult, BulkUpdateResult } from './bulk-operations.service';
-import { UserContext } from '@gigachad-grc/shared';
+import { AuthUser, FirebaseAuthGuard, UserContext } from '@gigachad-grc/shared';
 
 class BulkDeleteDto {
   @IsArray()
@@ -54,7 +53,7 @@ class BulkAssignOwnerDto {
 @ApiTags('bulk-operations')
 @ApiBearerAuth()
 @Controller('api/bulk')
-@UseGuards(DevAuthGuard, PermissionGuard)
+@UseGuards(FirebaseAuthGuard, PermissionGuard)
 export class BulkOperationsController {
   constructor(private readonly bulkOps: BulkOperationsService) {}
 
@@ -67,7 +66,7 @@ export class BulkOperationsController {
   @ApiResponse({ status: 200, description: 'Returns deletion result' })
   @RequirePermission(Resource.RISK, Action.DELETE)
   async bulkDeleteRisks(
-    @User() user: UserContext,
+    @AuthUser() user: UserContext,
     @Body() dto: BulkDeleteDto,
   ): Promise<BulkDeleteResult> {
     return this.bulkOps.bulkDeleteRisks(dto.ids, {
@@ -83,7 +82,7 @@ export class BulkOperationsController {
   @ApiResponse({ status: 200, description: 'Returns update result' })
   @RequirePermission(Resource.RISK, Action.UPDATE)
   async bulkUpdateRiskStatus(
-    @User() user: UserContext,
+    @AuthUser() user: UserContext,
     @Body() dto: BulkUpdateStatusDto,
   ): Promise<BulkUpdateResult> {
     return this.bulkOps.bulkUpdateRiskStatus(dto.ids, dto.status, {
@@ -103,7 +102,7 @@ export class BulkOperationsController {
   @ApiResponse({ status: 200, description: 'Returns deletion result' })
   @RequirePermission(Resource.CONTROLS, Action.DELETE)
   async bulkDeleteControls(
-    @User() user: UserContext,
+    @AuthUser() user: UserContext,
     @Body() dto: BulkDeleteDto,
   ): Promise<BulkDeleteResult> {
     return this.bulkOps.bulkDeleteControls(dto.ids, {
@@ -119,7 +118,7 @@ export class BulkOperationsController {
   @ApiResponse({ status: 200, description: 'Returns update result' })
   @RequirePermission(Resource.CONTROLS, Action.UPDATE)
   async bulkUpdateControlStatus(
-    @User() user: UserContext,
+    @AuthUser() user: UserContext,
     @Body() dto: BulkUpdateStatusDto,
   ): Promise<BulkUpdateResult> {
     return this.bulkOps.bulkUpdateControlStatus(dto.ids, dto.status, {
@@ -139,7 +138,7 @@ export class BulkOperationsController {
   @ApiResponse({ status: 200, description: 'Returns deletion result' })
   @RequirePermission(Resource.EVIDENCE, Action.DELETE)
   async bulkDeleteEvidence(
-    @User() user: UserContext,
+    @AuthUser() user: UserContext,
     @Body() dto: BulkDeleteDto,
   ): Promise<BulkDeleteResult> {
     return this.bulkOps.bulkDeleteEvidence(dto.ids, {
@@ -159,7 +158,7 @@ export class BulkOperationsController {
   @ApiResponse({ status: 200, description: 'Returns assignment result' })
   @RequirePermission(Resource.SETTINGS, Action.UPDATE)
   async bulkAssignOwner(
-    @User() user: UserContext,
+    @AuthUser() user: UserContext,
     @Body() dto: BulkAssignOwnerDto,
   ): Promise<BulkUpdateResult> {
     return this.bulkOps.bulkAssignOwner(dto.entityType, dto.ids, dto.ownerId, {

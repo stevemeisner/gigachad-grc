@@ -1631,7 +1631,7 @@ export interface UserPermissionOverride {
 export interface EffectivePermission {
   resource: string;
   actions: string[];
-  source: 'group' | 'override';
+  source: 'group' | 'override' | 'role';
   groupName?: string;
   scope?: {
     ownership?: string;

@@ -2,11 +2,11 @@ import { Controller, Get, Post, Query, Param, Body, UseGuards, Req, Res } from '
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { Response } from 'express';
 import { ReportsService, ReportOptions } from './reports.service';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { FirebaseAuthGuard } from '@gigachad-grc/shared';
 
 @ApiTags('Audit Reports')
 @ApiBearerAuth()
-@UseGuards(DevAuthGuard)
+@UseGuards(FirebaseAuthGuard)
 @Controller('reports')
 export class ReportsController {
   constructor(private readonly reportsService: ReportsService) {}

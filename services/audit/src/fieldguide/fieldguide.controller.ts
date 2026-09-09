@@ -21,7 +21,7 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { FieldGuideService } from './fieldguide.service';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { FirebaseAuthGuard } from '@gigachad-grc/shared';
 import {
   FieldGuideConnectDto,
   FieldGuideConnectionStatusDto,
@@ -52,7 +52,7 @@ export class FieldGuideController {
   // ============================================
 
   @Post('connect')
-  @UseGuards(DevAuthGuard)
+  @UseGuards(FirebaseAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Connect to FieldGuide' })
   @ApiResponse({ status: 201, description: 'Successfully connected', type: FieldGuideConnectionStatusDto })
@@ -65,7 +65,7 @@ export class FieldGuideController {
   }
 
   @Post('disconnect')
-  @UseGuards(DevAuthGuard)
+  @UseGuards(FirebaseAuthGuard)
   @ApiBearerAuth()
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Disconnect from FieldGuide' })
@@ -75,7 +75,7 @@ export class FieldGuideController {
   }
 
   @Get('status')
-  @UseGuards(DevAuthGuard)
+  @UseGuards(FirebaseAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get FieldGuide connection status' })
   @ApiResponse({ status: 200, description: 'Connection status', type: FieldGuideConnectionStatusDto })
@@ -88,7 +88,7 @@ export class FieldGuideController {
   // ============================================
 
   @Post('sync')
-  @UseGuards(DevAuthGuard)
+  @UseGuards(FirebaseAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Trigger synchronization with FieldGuide' })
   @ApiResponse({ status: 200, description: 'Sync result', type: SyncResultDto })
@@ -101,7 +101,7 @@ export class FieldGuideController {
   }
 
   @Get('sync/history')
-  @UseGuards(DevAuthGuard)
+  @UseGuards(FirebaseAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get sync history' })
   @ApiResponse({ status: 200, description: 'Sync history', type: [SyncHistoryItemDto] })
@@ -118,7 +118,7 @@ export class FieldGuideController {
   // ============================================
 
   @Get('mappings')
-  @UseGuards(DevAuthGuard)
+  @UseGuards(FirebaseAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get audit mappings between GRC and FieldGuide' })
   @ApiResponse({ status: 200, description: 'Audit mappings', type: [FieldGuideAuditMappingDto] })
@@ -127,7 +127,7 @@ export class FieldGuideController {
   }
 
   @Post('mappings')
-  @UseGuards(DevAuthGuard)
+  @UseGuards(FirebaseAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Link a GRC audit to a FieldGuide audit' })
   @ApiResponse({ status: 201, description: 'Audit linked', type: FieldGuideAuditMappingDto })
@@ -140,7 +140,7 @@ export class FieldGuideController {
   }
 
   @Delete('mappings/:auditId')
-  @UseGuards(DevAuthGuard)
+  @UseGuards(FirebaseAuthGuard)
   @ApiBearerAuth()
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Unlink an audit from FieldGuide' })

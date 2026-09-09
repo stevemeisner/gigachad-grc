@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { UserRole } from '@prisma/client';
 import {
   Resource,
   Action,
@@ -8,6 +9,8 @@ import {
   EffectivePermissionDto,
   PermissionCheckResultDto,
   PermissionScopeDto,
+  DEFAULT_PERMISSION_GROUPS,
+  PermissionGroupTemplate,
 } from './dto/permission.dto';
 
 interface ResourceContext {
@@ -17,6 +20,28 @@ interface ResourceContext {
   tags?: string[];
   category?: string;
 }
+
+/**
+ * Fallback map from the `users.role` column onto the default permission
+ * group templates.
+ *
+ * The permission model proper is group-membership based: a user's rights come
+ * from the PermissionGroup rows they belong to plus their per-user overrides.
+ * But a freshly provisioned user -- anyone who signed in before an admin put
+ * them in a group -- has neither, and would therefore have zero permissions
+ * and 403 on every route.
+ *
+ * This map makes `users.role` load-bearing rather than decorative: the role a
+ * user is stored with actually determines what they can do until an admin
+ * grants them something more specific. `control_owner` is deliberately absent
+ * -- it is a group template only, with no corresponding UserRole value.
+ */
+const ROLE_FALLBACK_GROUPS: Record<UserRole, keyof typeof DEFAULT_PERMISSION_GROUPS> = {
+  admin: 'administrator',
+  compliance_manager: 'compliance_manager',
+  auditor: 'auditor',
+  viewer: 'viewer',
+};
 
 @Injectable()
 export class PermissionsService {
@@ -103,7 +128,11 @@ export class PermissionsService {
   }
 
   /**
-   * Get all effective permissions for a user (merged from groups + overrides)
+   * Get all effective permissions for a user.
+   *
+   * Normally these are merged from the user's group memberships and their
+   * per-user overrides. A user with neither falls back to the permissions of
+   * the default group their `users.role` maps to -- see ROLE_FALLBACK_GROUPS.
    */
   async getEffectivePermissions(userId: string): Promise<EffectivePermissionDto[]> {
     // Get user's group memberships with permissions
@@ -118,6 +147,14 @@ export class PermissionsService {
     const overrides = await this.prisma.userPermissionOverride.findMany({
       where: { userId },
     });
+
+    // Nothing granted explicitly: fall back to the role column so a newly
+    // provisioned user is usable before an admin assigns groups. Any group
+    // membership or override at all takes precedence, so an admin who
+    // deliberately narrows a user is never overruled by their role.
+    if (memberships.length === 0 && overrides.length === 0) {
+      return this.getRoleFallbackPermissions(userId);
+    }
 
     // Build effective permissions map
     const permissionMap = new Map<string, EffectivePermissionDto>();
@@ -187,6 +224,46 @@ export class PermissionsService {
     }
 
     return Array.from(permissionMap.values());
+  }
+
+  /**
+   * Derive permissions from `users.role` for a user with no groups and no
+   * overrides.
+   *
+   * The role is mapped onto one of the DEFAULT_PERMISSION_GROUPS templates,
+   * so the fallback speaks exactly the same Resource/Action vocabulary the
+   * groups stored in the database do -- there is no second permission format
+   * and no flat `resource:action` string anywhere in the decision path.
+   */
+  private async getRoleFallbackPermissions(userId: string): Promise<EffectivePermissionDto[]> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    });
+
+    if (!user) {
+      this.logger.warn(`No user row for ${userId}; granting no permissions`);
+      return [];
+    }
+
+    // ROLE_FALLBACK_GROUPS is keyed by the full UserRole enum, so adding a
+    // role to the Prisma schema without deciding its permissions is a
+    // compile error rather than a silently permissionless user.
+    const template: PermissionGroupTemplate =
+      DEFAULT_PERMISSION_GROUPS[ROLE_FALLBACK_GROUPS[user.role]];
+
+    this.logger.debug(
+      `User ${userId} has no groups or overrides; falling back to role ` +
+        `"${user.role}" (${template.name})`,
+    );
+
+    return template.permissions.map(perm => ({
+      resource: perm.resource,
+      actions: [...perm.actions],
+      scope: perm.scope ?? { ownership: OwnershipScope.ALL },
+      source: 'role' as const,
+      groupName: template.name,
+    }));
   }
 
   /**

@@ -105,13 +105,14 @@ MINIO_ROOT_PASSWORD=${MINIO_PASSWORD}
 MINIO_ACCESS_KEY=minioadmin
 MINIO_SECRET_KEY=${MINIO_PASSWORD}
 
-# Authentication
-KEYCLOAK_URL=http://localhost:8080
-KEYCLOAK_REALM=grc
-KEYCLOAK_CLIENT_ID=grc-app
-KEYCLOAK_ADMIN=admin
-KEYCLOAK_ADMIN_PASSWORD=admin
-USE_DEV_AUTH=true
+# Authentication (Firebase Authentication - Google sign-in only).
+# AUTH_MODE=demo is the local bypass: it loads the seeded demo identity from
+# PostgreSQL. The backend refuses it when NODE_ENV=production.
+AUTH_MODE=demo
+FIREBASE_PROJECT_ID=
+ALLOWED_EMAIL_DOMAINS=
+AUTH_AUTO_PROVISION=false
+AUTH_DEFAULT_ORG_ID=
 
 # CORS
 CORS_ORIGINS=http://localhost:3000,http://localhost:5173,http://localhost:5174

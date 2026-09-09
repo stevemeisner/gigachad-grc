@@ -41,6 +41,8 @@ Stop it again with `./scripts/stop-demo.sh` (or `npm run demo:stop`).
 | [Configuration Reference](docs/CONFIGURATION.md) | Environment variables, service configuration, Traefik, database |
 | [Development Guide](docs/DEVELOPMENT.md) | Local setup, project structure, coding standards, testing |
 | [Deployment Guide](docs/DEPLOYMENT.md) | Production deployment, CI/CD, monitoring, backups |
+| [Deployment Runbook](docs/DEPLOYMENT-RUNBOOK.md) | Numbered start-to-finish first production deployment: Firebase project, server, environment, first administrator, verification, rollback |
+| [Hosting Requirements](docs/HOSTING-REQUIREMENTS.md) | What you need to run it for real, what it costs, what is still outstanding |
 | [Quick Start Guide](docs/QUICK_START.md) | Get up and running quickly with GigaChad GRC |
 | [Demo & Sandbox](docs/DEMO.md) | Try GigaChad GRC with sample data, one-click demo setup |
 | [Upgrade Guide](docs/UPGRADE.md) | Upgrading between versions, migration steps |
@@ -81,8 +83,8 @@ Stop it again with `./scripts/stop-demo.sh` (or `npm run demo:stop`).
 
 ### Quick Links
 
-- **API Gateway**: Traefik v3.0 - [Configuration Details](docs/ARCHITECTURE.md#api-gateway-traefik)
-- **Authentication**: Keycloak OAuth 2.0 - [Setup Guide](docs/CONFIGURATION.md#keycloak-configuration)
+- **Ingress**: nginx gateway (`gateway/nginx.conf`) behind Traefik for TLS - [Configuration Details](docs/ARCHITECTURE.md#ingress-and-routing)
+- **Authentication**: Firebase Authentication, Google sign-in only - [Deployment Runbook](docs/DEPLOYMENT-RUNBOOK.md)
 - **Database**: PostgreSQL 16 - [Schema Details](docs/CONFIGURATION.md#database-configuration)
 - **Monitoring**: Prometheus + Grafana - [Setup Guide](monitoring/README.md)
 - **AI Integration**: OpenAI/Anthropic - [AI Configuration](docs/help/ai-mcp/risk-assistant.md)
@@ -639,14 +641,15 @@ Model Context Protocol servers for automated GRC workflows.
 ### 9. Settings & Administration
 
 #### User Management
-User account and access control management via Keycloak.
+User records, roles and access control, stored in PostgreSQL.
 
 **Features:**
-- User provisioning and deactivation
+- User provisioning and deactivation (a `users` row with `status = active`)
 - Role assignment (Admin, Compliance Manager, Auditor, Viewer)
-- SSO integration via Keycloak
-- Multi-factor authentication
-- Session management
+- Permission groups and per-user overrides
+- Sign-in itself is Google's: **Firebase Authentication with the Google
+  provider only**. Creating or disabling a *login* is done in Google Workspace;
+  this screen governs what an existing login may do.
 
 #### Permissions
 Role-based access control and permission groups.
@@ -720,27 +723,33 @@ The main dashboard provides an executive overview of your entire GRC program:
 
 ## Architecture
 
-The diagram below is the full container topology described by `docker-compose.yml`. The local demo runs a subset of it: Traefik is not started, and the Vite dev server proxies `/api/*` to the services instead — see [Architecture at runtime](#architecture-at-runtime).
+The diagram below is the production topology described by `docker-compose.prod.yml`. The local demo runs a subset of it: no Traefik and no gateway container — the Vite dev server proxies `/api/*` to the six services instead — see [Architecture at runtime](#architecture-at-runtime).
 
 ```
 ┌───────────────────────────────────────────────────────────────────────┐
-│                           Traefik Gateway                              │
-│                           (API Routing)                                │
-├──────────┬──────────┬──────────┬──────────┬──────────┬──────────┬────┤
-│ Controls │Frameworks│ Policies │   TPRM   │  Trust   │  Audit   │ UI │
-│  :3001   │  :3002   │  :3004   │  :3005   │  :3006   │  :3007   │:3000
-├──────────┴──────────┴──────────┴──────────┴──────────┴──────────┴────┤
+│                    Traefik  :80 → :443  (TLS only)                     │
+├───────────────────────────────────────────────────────────────────────┤
+│         nginx gateway  (gateway/nginx.conf) — all 53 /api routes       │
+├──────────┬──────────┬──────────┬──────────┬──────────┬──────────┬─────┤
+│ Controls │Frameworks│ Policies │   TPRM   │  Trust   │  Audit   │ UI  │
+│  :3001   │  :3002   │  :3004   │  :3005   │  :3006   │  :3007   │:3000│
+├──────────┴──────────┴──────────┴──────────┴──────────┴──────────┴─────┤
 │                          Shared Library                                │
-│              (Prisma Schema, Types, Auth, Storage)                     │
-├──────────┬──────────┬─────────────────────────────────────────────────┤
-│PostgreSQL│ Keycloak │                     MinIO                        │
-│  :5433   │  :8080   │                :9000 / :9001                     │
-│(Database)│  (Auth)  │              (Object Storage)                    │
-└──────────┴──────────┴─────────────────────────────────────────────────┘
+│         (Prisma Schema, Types, FirebaseAuthGuard, Storage)             │
+├──────────────────────────┬────────────────────────────────────────────┤
+│        PostgreSQL        │                   MinIO                     │
+│   :5432 (5433 in dev)    │             :9000 / :9001                   │
+│ (identity → user, roles, │           (Object Storage)                  │
+│  permissions, all data)  │                                             │
+└──────────────────────────┴────────────────────────────────────────────┘
+
+Sign-in is external: Firebase Authentication (Google provider only) issues the
+ID token the browser sends. The token proves identity; every role and
+permission decision is made from PostgreSQL.
 
 Frontend (React + Vite)
     ↓
-Traefik (API Gateway)
+Traefik (TLS) → nginx gateway (path routing)
     ↓
 Microservices Layer:
   - Controls Service (NestJS) → Controls + Evidence + Audit Logging
@@ -751,8 +760,7 @@ Microservices Layer:
   - Audit Service (NestJS) → Audit Management + Auditor Portal
     ↓
 Infrastructure Layer:
-  - PostgreSQL (Single database, multi-tenant schema)
-  - Keycloak (SSO + RBAC)
+  - PostgreSQL (single database, multi-tenant schema)
   - MinIO (S3-compatible object storage)
 ```
 
@@ -761,8 +769,8 @@ Infrastructure Layer:
 - **Backend**: Node.js + TypeScript with NestJS
 - **Frontend**: React + TypeScript with Vite, TailwindCSS
 - **Database**: PostgreSQL with Prisma ORM
-- **Authentication**: Keycloak (SSO, RBAC)
-- **API Gateway**: Traefik
+- **Authentication**: Firebase Authentication (Google sign-in only); roles and permissions in PostgreSQL
+- **Ingress**: nginx gateway (`gateway/nginx.conf`), with Traefik terminating TLS
 - **Storage**: MinIO (S3-compatible)
 - **Containers**: Docker with Docker Compose
 
@@ -772,7 +780,7 @@ Infrastructure Layer:
 
 - **Docker** (Desktop, Colima or Engine) running, with the Compose v2 plugin (`docker compose`)
 - **Node.js 18+** (20+ recommended) and npm
-- These host ports free: `3000`, `3001`, `3002`, `3004`, `3005`, `3006`, `3007`, `5433`, `6380`, `8080`, `9000`, `9001`
+- These host ports free: `3000`, `3001`, `3002`, `3004`, `3005`, `3006`, `3007`, `5433`, `9000`, `9001`
 
 ### Start the platform
 
@@ -786,7 +794,7 @@ cd gigachad-grc
 
 1. Checks prerequisites (Docker, Compose v2, Node.js 18+, npm) and that every required host port is free, naming any conflict instead of failing halfway.
 2. Creates `.env` from `env.development` if it is missing, and refuses to continue when `.env` sets `NODE_ENV=production`.
-3. Starts infrastructure in Docker — `docker compose up -d postgres keycloak minio` — then waits for PostgreSQL and for the Keycloak realm to import.
+3. Starts infrastructure in Docker — `docker compose up -d postgres minio` — then waits for PostgreSQL to become ready.
 4. Creates the database schema with `prisma db push` against `services/shared/prisma/schema.prisma`, then applies `database/dev-bootstrap.sql`.
 5. Runs `npm install` if `node_modules` is absent, then builds the shared library and the six services in parallel.
 6. Starts the six NestJS services on the host and waits for each port to accept connections.
@@ -799,13 +807,17 @@ Per-process logs are written to `.demo/logs/`.
 
 Open **http://localhost:3000** and click **Dev Login (Skip SSO)**. No password is needed; you are signed in as an admin of the demo organization.
 
-Use `localhost`, not `127.0.0.1`. The Keycloak client in `auth/realm-export.json` allows only `http://localhost:3000/*` as a redirect URI, so `127.0.0.1` lands on a Keycloak "invalid redirect uri" page.
+Real sign-in is **Firebase Authentication with Google as the only provider**. The demo does not need a Firebase project: `scripts/start-demo.sh` runs the six services with `AUTH_MODE=demo`, the single auth bypass in the system. `FirebaseAuthGuard` (`services/shared/src/auth/firebase-auth.guard.ts`) then skips token verification and resolves the seeded demo identity (`john.doe@example.com`, `external_id` = `demo-user`) from PostgreSQL through the same code path a real Google sign-in uses.
 
-> ⚠️ **The development stack has no authentication.**
+Use `localhost`, not `127.0.0.1`: `CORS_ORIGINS` in `env.development` lists `http://localhost:3000`, and a Firebase project's Authorized domains list works the same way — the loopback IP is a different origin.
+
+> ⚠️ **`AUTH_MODE=demo` is not authentication.**
 >
-> In development every controller uses `DevAuthGuard`, which fabricates a full-permission admin user from any request and never validates a token. The genuine JWKS-validating `JwtAuthGuard` in `services/shared/src/auth/jwt.guard.ts` is currently wired to zero controllers. Keep the demo bound to loopback, and never expose it to a network or the internet.
+> Every request is served as the demo admin without a token. The guard hard-throws when `NODE_ENV=production`, so the bypass cannot reach a real deployment, but keep the demo bound to loopback and never expose it to a network.
 >
-> The Dev Login button is gated on Vite's `import.meta.env.DEV`, not on `VITE_ENABLE_DEV_AUTH` — that variable exists only to make production builds fail loudly. Setting it will not change dev login behaviour either way.
+> The Dev Login button is rendered only when the dev server sees `VITE_AUTH_MODE=demo` (set in `env.development`). It cannot survive a production build either way: Vite compiles `import.meta.env.DEV` to `false`, making the branch dead code.
+
+To exercise real Google sign-in, follow the [Deployment Runbook](docs/DEPLOYMENT-RUNBOOK.md).
 
 ### Options
 
@@ -832,17 +844,13 @@ The demo splits the stack in two:
 
 | Runs in Docker | Runs on the host |
 |----------------|------------------|
-| PostgreSQL, Keycloak, MinIO | The six NestJS services and the Vite dev server |
+| PostgreSQL, MinIO | The six NestJS services and the Vite dev server |
 
-`env.development` is written for exactly this layout: `DATABASE_URL`, `MINIO_ENDPOINT` and `KEYCLOAK_URL` all point at `localhost` and the published container ports.
+`env.development` is written for exactly this layout: `DATABASE_URL` and `MINIO_ENDPOINT` point at `localhost` and the published container ports, and `AUTH_MODE=demo` removes any dependency on an external identity provider.
 
 Why not containerise the services as well? `docker-compose.yml` can build all six, but the first build of those images takes roughly 25-60 minutes, while compiling them on the host takes seconds. The host is the fast path for day-to-day work.
 
-Keycloak is required even though the demo signs in with Dev Login: `frontend/src/contexts/AuthContext.tsx` calls `keycloak.init({ onLoad: 'check-sso' })` on every page load, and with Keycloak down the browser fails with `ERR_CONNECTION_REFUSED` before the login screen renders.
-
-**Keycloak has its own database.** Its realm, clients and users live in a dedicated `keycloak` database, created on first volume initialisation by `database/bootstrap/00-create-keycloak-db.sql` and wired up through `KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak` in `docker-compose.yml`. It used to share the application database, which put its ~90 tables (`user_entity`, `redirect_uris`, …) into the same `public` schema Prisma manages; Prisma treated them as foreign, so every `prisma db push` offered to drop them — taking the realm and its users with it. With the split, `db push` only ever sees tables it owns.
-
-**Running the full container stack.** `docker-compose.yml` holds the complete topology — the six services plus Traefik, Prometheus and Grafana. The images do not create the database schema, so it has to exist first:
+**Running the full container stack.** `docker-compose.yml` holds the complete container topology — the six services plus Traefik, Prometheus and Grafana. It is a development convenience, not the production shape: production is `docker-compose.prod.yml`, where the nginx gateway owns all path routing. The images do not create the database schema, so it has to exist first:
 
 ```bash
 cp env.development .env
@@ -862,7 +870,7 @@ docker compose up -d        # build and start everything else (first build is sl
 | `deploy/env.example` | Template used by the deployment tooling; sets `NODE_ENV=production`. |
 | `env.example.production` | Production reference covering every supported variable. |
 
-There is no `env.example` at the repository root. Do not copy a production template to `.env` for local work: `DevAuthGuard` throws when `NODE_ENV=production`, so every controls endpoint answers HTTP 500 rather than 401. `start-demo.sh` detects that `.env` and stops with instructions.
+There is no `env.example` at the repository root. Do not copy a production template to `.env` for local work: `deploy/env.example` sets `NODE_ENV=production`, and `FirebaseAuthGuard` refuses to initialise with `AUTH_MODE=demo` in production, so no service starts. `start-demo.sh` detects that `.env` and stops with instructions.
 
 ### Database and demo data
 
@@ -873,7 +881,7 @@ npm run db:push      # prisma db push --schema=services/shared/prisma/schema.pri
 npm run db:studio    # browse the data in Prisma Studio
 ```
 
-The repository ships no baseline migration, so `prisma migrate deploy` has nothing to apply — use `db:push`. `database/init/*.sql` is legacy and **not** applied: those files are incremental patches against Prisma-owned tables, and are deliberately not mounted into the PostgreSQL container. `database/dev-bootstrap.sql` inserts the organization and user that `DevAuthGuard` hard-codes; without those rows the demo seeder fails with Prisma error `P2025`.
+The repository ships no baseline migration, so `prisma migrate deploy` has nothing to apply — use `db:push`. `database/init/*.sql` is legacy and **not** applied: those files are incremental patches against Prisma-owned tables, and are deliberately not mounted into the PostgreSQL container. `database/dev-bootstrap.sql` inserts the organization and user that `AUTH_MODE=demo` resolves against; without those rows every request is refused and the demo seeder fails with Prisma error `P2025`.
 
 `start-demo.sh` loads demo data automatically on first run. To load it by hand:
 
@@ -902,14 +910,14 @@ npm --prefix services/controls run start:dev   # watch mode on port 3001
 npm --prefix frontend run dev                  # Vite on port 3000 (set in frontend/vite.config.ts)
 ```
 
-Build every backend at once with `npm run build:services`. Infrastructure still has to be up: `docker compose up -d postgres keycloak minio`.
+Build every backend at once with `npm run build:services`. Infrastructure still has to be up: `docker compose up -d postgres minio`.
 
 ### Troubleshooting
 
 - **`Ports already in use`** — a previous run or another app owns a port. Run `./scripts/stop-demo.sh`, or identify the owner with `lsof -nP -iTCP:3000 -sTCP:LISTEN`.
-- **Every API call returns HTTP 500** — your `.env` sets `NODE_ENV=production`, which disables development auth. Replace it with a copy of `env.development`.
-- **Keycloak shows "invalid redirect uri"** — open `http://localhost:3000`, never `http://127.0.0.1:3000`.
-- **The login page never renders (`ERR_CONNECTION_REFUSED`)** — Keycloak is down; it is required even for Dev Login. Check `docker compose logs keycloak`.
+- **No service starts, or the log mentions `AUTH_MODE=demo`** — your `.env` sets `NODE_ENV=production`, which the auth guard refuses to combine with the demo bypass. Replace it with a copy of `env.development`.
+- **The login page offers only "Sign in with Google"** — `VITE_AUTH_MODE=demo` is missing from your `.env`; copy the line from `env.development` and restart the dev server.
+- **Signed in but every API call is 401/403** — with real Google sign-in you also need a `users` row and a matching `ALLOWED_EMAIL_DOMAINS` entry. See [Troubleshooting](docs/TROUBLESHOOTING.md#signed-in-with-google-but-every-request-is-401-or-403).
 - Anything else: **[Troubleshooting](docs/TROUBLESHOOTING.md)**.
 
 ## Production Readiness & Resilience
@@ -932,7 +940,7 @@ The script validates:
 - Security configuration (encryption keys, passwords, auth mode)
 - Database connections and SSL
 - Backup configuration
-- Authentication setup (Keycloak)
+- Authentication setup (`FIREBASE_PROJECT_ID`, `ALLOWED_EMAIL_DOMAINS`, auto-provisioning consistency, and that `AUTH_MODE=demo` is not set in production)
 - Network/CORS settings
 
 ### System Health Dashboard
@@ -1062,11 +1070,9 @@ gigachad-grc/
 │   │   └── lib/              # Utilities and API clients
 │   └── package.json
 │
-├── auth/                     # Keycloak configuration
-│   └── realm-export.json     # Pre-configured realm
-│
-├── gateway/                  # Traefik configuration
-│   └── traefik.yml
+├── gateway/                  # Production ingress
+│   ├── nginx.conf            # All 53 /api routes + SPA fallback (the entrypoint)
+│   └── traefik.yml           # Traefik static config (TLS/entrypoints)
 │
 ├── database/
 │   ├── dev-bootstrap.sql     # Dev organization + user rows (applied by start-demo.sh)
@@ -1097,7 +1103,6 @@ One authoritative list of host ports. Each backend service serves Swagger at `/a
 | **Trust** | 3006 | ✅ | http://localhost:3006/api/docs |
 | **Audit** | 3007 | ✅ | http://localhost:3007/api/docs |
 | **PostgreSQL** | 5433 | ✅ | Container listens on 5432 |
-| **Keycloak** | 8080 | ✅ | Admin console; `KEYCLOAK_ADMIN` / `KEYCLOAK_ADMIN_PASSWORD` from `.env` (`admin` / `admin` in `env.development`) |
 | **MinIO API** | 9000 | ✅ | S3-compatible object storage |
 | **MinIO Console** | 9001 | ✅ | `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` from `.env`; `start-demo.sh` prints both when it finishes |
 | **Traefik** | 80 / 443, dashboard 8090 | ❌ | Full container stack only |
@@ -1129,18 +1134,20 @@ Defaults below are the fallbacks in `docker-compose.yml`. **None of these fallba
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `NODE_ENV` | Runtime mode; `production` disables development auth | development |
+| `NODE_ENV` | Runtime mode. `production` makes `AUTH_MODE=demo` a hard boot failure | development |
 | `POSTGRES_USER` | Database user | grc |
 | `POSTGRES_PASSWORD` | Database password | grc_secret |
 | `POSTGRES_DB` | Database name | gigachad_grc |
-| `KEYCLOAK_ADMIN` | Keycloak admin user | admin |
-| `KEYCLOAK_ADMIN_PASSWORD` | Keycloak admin password | admin |
-| `KEYCLOAK_REALM` | Realm imported from `auth/realm-export.json` | gigachad-grc |
+| `AUTH_MODE` | `demo` is the single auth bypass (development only) | *(unset)* |
+| `FIREBASE_PROJECT_ID` | Firebase project whose ID tokens are accepted; pins issuer and audience | *(unset)* |
+| `ALLOWED_EMAIL_DOMAINS` | Comma-separated email domains permitted to sign in | *(unset)* |
+| `AUTH_AUTO_PROVISION` | Create a `users` row on first sign-in instead of requiring one | false |
+| `AUTH_DEFAULT_ORG_ID` | Organization auto-provisioned users join; required when the above is `true` | *(unset)* |
 | `MINIO_ROOT_USER` | MinIO root user | minioadmin |
 | `MINIO_ROOT_PASSWORD` | MinIO root password | minioadmin |
 | `STORAGE_TYPE` | Storage backend (local/minio) | minio |
 
-The frontend clients are `grc-frontend` (SPA) and `grc-services` (backend), both in realm `gigachad-grc`.
+The browser needs `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN` and `VITE_FIREBASE_PROJECT_ID` at **build** time — they are compiled into the bundle. The Web API key is a public client identifier, not a secret. Full reference: [Deployment Runbook](docs/DEPLOYMENT-RUNBOOK.md#5-configure-the-environment).
 
 ### Storage Configuration
 
@@ -1174,16 +1181,20 @@ Each service is designed to run independently. To extract a module:
 
 ## Security Considerations
 
-> ⚠️ **The development configuration has no authentication at all.** Every controller is bound to `DevAuthGuard`, which fabricates a full-permission admin user from any request without validating a token. The real JWKS-validating `JwtAuthGuard` (`services/shared/src/auth/jwt.guard.ts`) is wired to zero controllers today. A development instance must stay on loopback and must never be exposed to a network.
+> ⚠️ **The local demo runs with the auth bypass on.** `AUTH_MODE=demo` serves every request as the seeded demo admin without a token. It cannot be enabled in a real deployment — `FirebaseAuthGuard` refuses to initialise when `NODE_ENV=production` — but a development instance must stay on loopback and must never be exposed to a network.
+
+In production, authentication is `FirebaseAuthGuard` on all 99 guarded route groups: a Google-issued Firebase ID token, verified against Google's JWKS with the issuer and audience pinned to `FIREBASE_PROJECT_ID`, followed by a database lookup that supplies the role, organization and account status. No authorization decision is ever taken from a token claim.
 
 Before running anywhere but your own machine:
 
 - Change every password and secret from the shipped development values
-- Wire `JwtAuthGuard` (or your own guard) into the controllers and stop using `DevAuthGuard`
-- Enable TLS/SSL for all services
-- Configure Keycloak for production use
+- Leave `AUTH_MODE` unset, and set `FIREBASE_PROJECT_ID` and `ALLOWED_EMAIL_DOMAINS`
+- Keep `AUTH_AUTO_PROVISION=false` unless you intend any address in an allowed domain to become a viewer automatically
+- Terminate TLS at the edge and publish only the gateway
 - Use proper secrets management
 - Review and harden Docker images
+
+Full procedure: **[Deployment Runbook](docs/DEPLOYMENT-RUNBOOK.md)**.
 
 `npm run validate:production` checks configuration before a production deploy; see [Production Readiness & Resilience](#production-readiness--resilience).
 

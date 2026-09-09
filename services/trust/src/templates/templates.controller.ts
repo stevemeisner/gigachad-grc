@@ -10,11 +10,10 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { TemplatesService, CreateTemplateDto, UpdateTemplateDto } from './templates.service';
-import { CurrentUser, UserContext } from '@gigachad-grc/shared';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { CurrentUser, FirebaseAuthGuard, UserContext } from '@gigachad-grc/shared';
 
 @Controller('answer-templates')
-@UseGuards(DevAuthGuard)
+@UseGuards(FirebaseAuthGuard)
 export class TemplatesController {
   constructor(private readonly templatesService: TemplatesService) {}
 

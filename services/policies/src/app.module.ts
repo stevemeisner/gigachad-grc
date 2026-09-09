@@ -3,7 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from './prisma/prisma.module';
 import { PoliciesModule } from './policies/policies.module';
 import { AuditModule } from './audit/audit.module';
-import { StorageModule } from '@gigachad-grc/shared';
+import { StorageModule, HealthModule } from '@gigachad-grc/shared';
 
 @Module({
   imports: [
@@ -11,6 +11,7 @@ import { StorageModule } from '@gigachad-grc/shared';
       isGlobal: true,
     }),
     PrismaModule,
+    HealthModule,
     StorageModule.forRoot(),
     AuditModule,
     PoliciesModule,

@@ -12,6 +12,20 @@ RUN npm install --include=dev
 
 # Copy frontend source
 COPY frontend/ ./
+
+# Vite inlines VITE_* variables at build time, so the target Firebase project
+# has to be known when the image is built.
+#
+# The Firebase web API key is a PUBLIC client identifier, not a secret: it only
+# names the project the SDK talks to, and it ships inside the JS bundle either
+# way. Access is enforced by server-side ID token verification.
+ARG VITE_FIREBASE_API_KEY
+ARG VITE_FIREBASE_AUTH_DOMAIN
+ARG VITE_FIREBASE_PROJECT_ID
+ENV VITE_FIREBASE_API_KEY=$VITE_FIREBASE_API_KEY
+ENV VITE_FIREBASE_AUTH_DOMAIN=$VITE_FIREBASE_AUTH_DOMAIN
+ENV VITE_FIREBASE_PROJECT_ID=$VITE_FIREBASE_PROJECT_ID
+
 RUN npm run build
 
 # Production stage

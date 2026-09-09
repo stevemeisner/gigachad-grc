@@ -10,7 +10,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { FirebaseAuthGuard } from '@gigachad-grc/shared';
 import { CurrentUser } from '../auth/decorators/require-permission.decorator';
 import { TrainingService } from './training.service';
 import {
@@ -33,7 +33,7 @@ interface AuthUser {
 
 @ApiTags('Training')
 @ApiBearerAuth()
-@UseGuards(DevAuthGuard)
+@UseGuards(FirebaseAuthGuard)
 @Controller('api/training')
 export class TrainingController {
   constructor(private readonly trainingService: TrainingService) {}

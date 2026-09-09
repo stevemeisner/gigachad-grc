@@ -24,7 +24,7 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { PhishingService } from './phishing.service';
-import { DevAuthGuard } from '../../auth/dev-auth.guard';
+import { FirebaseAuthGuard } from '@gigachad-grc/shared';
 import { PermissionGuard } from '../../auth/permission.guard';
 import { RequirePermission } from '../../auth/decorators/require-permission.decorator';
 import { Resource, Action } from '../../permissions/dto/permission.dto';
@@ -47,7 +47,7 @@ export class PhishingController {
   // ============================================
 
   @Get('templates')
-  @UseGuards(DevAuthGuard, PermissionGuard)
+  @UseGuards(FirebaseAuthGuard, PermissionGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'List all phishing templates' })
   @ApiResponse({ status: 200, description: 'List of templates', type: [PhishingTemplateDto] })
@@ -57,7 +57,7 @@ export class PhishingController {
   }
 
   @Get('templates/:id')
-  @UseGuards(DevAuthGuard, PermissionGuard)
+  @UseGuards(FirebaseAuthGuard, PermissionGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get a specific template' })
   @ApiParam({ name: 'id', description: 'Template ID' })
@@ -70,7 +70,7 @@ export class PhishingController {
   }
 
   @Post('templates')
-  @UseGuards(DevAuthGuard, PermissionGuard)
+  @UseGuards(FirebaseAuthGuard, PermissionGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Create a custom phishing template' })
   @ApiBody({ type: CreatePhishingTemplateDto })
@@ -84,7 +84,7 @@ export class PhishingController {
   }
 
   @Put('templates/:id')
-  @UseGuards(DevAuthGuard, PermissionGuard)
+  @UseGuards(FirebaseAuthGuard, PermissionGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Update a custom template' })
   @ApiParam({ name: 'id', description: 'Template ID' })
@@ -98,7 +98,7 @@ export class PhishingController {
   }
 
   @Delete('templates/:id')
-  @UseGuards(DevAuthGuard, PermissionGuard)
+  @UseGuards(FirebaseAuthGuard, PermissionGuard)
   @ApiBearerAuth()
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete a custom template' })
@@ -116,7 +116,7 @@ export class PhishingController {
   // ============================================
 
   @Get('campaigns')
-  @UseGuards(DevAuthGuard, PermissionGuard)
+  @UseGuards(FirebaseAuthGuard, PermissionGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'List all phishing campaigns' })
   @ApiResponse({ status: 200, description: 'List of campaigns', type: [CampaignDto] })
@@ -126,7 +126,7 @@ export class PhishingController {
   }
 
   @Get('campaigns/:id')
-  @UseGuards(DevAuthGuard, PermissionGuard)
+  @UseGuards(FirebaseAuthGuard, PermissionGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get campaign details' })
   @ApiParam({ name: 'id', description: 'Campaign ID' })
@@ -140,7 +140,7 @@ export class PhishingController {
   }
 
   @Post('campaigns')
-  @UseGuards(DevAuthGuard, PermissionGuard)
+  @UseGuards(FirebaseAuthGuard, PermissionGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Create a new phishing campaign' })
   @ApiBody({ type: CreateCampaignDto })
@@ -154,7 +154,7 @@ export class PhishingController {
   }
 
   @Post('campaigns/:id/start')
-  @UseGuards(DevAuthGuard, PermissionGuard)
+  @UseGuards(FirebaseAuthGuard, PermissionGuard)
   @ApiBearerAuth()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Start a campaign' })
@@ -168,7 +168,7 @@ export class PhishingController {
   }
 
   @Post('campaigns/:id/pause')
-  @UseGuards(DevAuthGuard, PermissionGuard)
+  @UseGuards(FirebaseAuthGuard, PermissionGuard)
   @ApiBearerAuth()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Pause a campaign' })
@@ -182,7 +182,7 @@ export class PhishingController {
   }
 
   @Post('campaigns/:id/complete')
-  @UseGuards(DevAuthGuard, PermissionGuard)
+  @UseGuards(FirebaseAuthGuard, PermissionGuard)
   @ApiBearerAuth()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Complete a campaign' })
@@ -196,7 +196,7 @@ export class PhishingController {
   }
 
   @Get('campaigns/:id/results')
-  @UseGuards(DevAuthGuard, PermissionGuard)
+  @UseGuards(FirebaseAuthGuard, PermissionGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get campaign results and analytics' })
   @ApiParam({ name: 'id', description: 'Campaign ID' })

@@ -18,11 +18,10 @@ import { CreateQuestionnaireDto } from './dto/create-questionnaire.dto';
 import { UpdateQuestionnaireDto } from './dto/update-questionnaire.dto';
 import { CreateQuestionDto } from './dto/create-question.dto';
 import { UpdateQuestionDto } from './dto/update-question.dto';
-import { CurrentUser, UserContext } from '@gigachad-grc/shared';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { CurrentUser, FirebaseAuthGuard, UserContext } from '@gigachad-grc/shared';
 
 @Controller('questionnaires')
-@UseGuards(DevAuthGuard)
+@UseGuards(FirebaseAuthGuard)
 export class QuestionnairesController {
   constructor(
     private readonly questionnairesService: QuestionnairesService,

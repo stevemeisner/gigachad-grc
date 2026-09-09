@@ -66,7 +66,7 @@ const SETUP_STEPS: Omit<SetupStep, 'status'>[] = [
     icon: UserGroupIcon,
     instructions: [
       'Run the seed command to create initial admin user',
-      'Or configure Keycloak and create users there',
+      'Or set AUTH_AUTO_PROVISION=true so the first Google sign-in creates the user',
       'Admin users can manage all system settings',
     ],
     commands: [
@@ -87,16 +87,16 @@ const SETUP_STEPS: Omit<SetupStep, 'status'>[] = [
   {
     id: 'authentication',
     title: 'Authentication',
-    description: 'Configure Keycloak for production SSO',
+    description: 'Configure Firebase Authentication (Google sign-in)',
     icon: ShieldCheckIcon,
     instructions: [
-      'Access Keycloak admin console at your auth URL',
-      'Create a realm for GRC (or import the provided realm)',
-      'Configure client credentials in .env',
-      'Set up user federation if using LDAP/AD',
+      'Enable the Google sign-in provider in your Firebase project',
+      'Set FIREBASE_PROJECT_ID and ALLOWED_EMAIL_DOMAINS in .env',
+      'Set VITE_FIREBASE_API_KEY, VITE_FIREBASE_AUTH_DOMAIN and VITE_FIREBASE_PROJECT_ID before building the frontend',
+      'For local development use AUTH_MODE=demo instead; it is refused when NODE_ENV=production',
     ],
     commands: [
-      'docker compose logs keycloak',
+      'docker compose logs controls',
     ],
   },
   {

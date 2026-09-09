@@ -17,7 +17,7 @@
 # WHAT THIS SCRIPT DOES:
 #   1. Checks prerequisites and that every required host port is free
 #   2. Creates .env from env.development if missing
-#   3. Starts infrastructure (PostgreSQL, Keycloak, MinIO)
+#   3. Starts infrastructure (PostgreSQL, MinIO)
 #   4. Creates the database schema with `prisma db push`
 #   5. Inserts the development organization/user rows
 #   6. Builds the shared library and the six services
@@ -50,9 +50,9 @@ SERVICE_NAMES=(controls frameworks policies tprm trust audit)
 SERVICE_PORTS=(3001      3002       3004     3005 3006  3007)
 
 FRONTEND_PORT=3000
-INFRA_SERVICES=(postgres keycloak minio)
+INFRA_SERVICES=(postgres minio)
 # Host ports published by the infrastructure containers.
-INFRA_PORTS=(5433 8080 9000 9001)
+INFRA_PORTS=(5433 9000 9001)
 
 SKIP_BUILD=false
 RUN_SEED=true
@@ -168,9 +168,10 @@ else
     ok ".env already exists"
 fi
 
-# A .env carrying NODE_ENV=production makes DevAuthGuard throw on every
-# request (see services/*/src/auth/dev-auth.guard.ts). Earlier versions of
-# this script seeded .env from deploy/env.example, which sets production.
+# A .env carrying NODE_ENV=production makes the Firebase auth guard refuse
+# AUTH_MODE=demo and reject every request (see
+# services/shared/src/auth/firebase-auth.guard.ts). Earlier versions of this
+# script seeded .env from deploy/env.example, which sets production.
 if grep -qE '^NODE_ENV=production' .env; then
     die "Your .env sets NODE_ENV=production, which disables development auth.
    The demo cannot run against it. Use the development template instead:
@@ -184,13 +185,9 @@ set +a
 ok "Environment loaded (NODE_ENV=${NODE_ENV:-development})"
 
 # ----------------------------------------------------------------------------
-step 3 "Starting infrastructure (PostgreSQL, Keycloak, MinIO)..."
+step 3 "Starting infrastructure (PostgreSQL, MinIO)..."
 # ----------------------------------------------------------------------------
 
-# Keycloak is not optional even though the demo uses Dev Login: the SPA runs
-# keycloak.init({ onLoad: 'check-sso' }) on every page load, and a missing
-# Keycloak turns that into a hard navigation failure before the login screen
-# ever renders. See frontend/src/contexts/AuthContext.tsx.
 docker compose up -d "${INFRA_SERVICES[@]}"
 
 info "Waiting for PostgreSQL..."
@@ -203,24 +200,6 @@ for _ in $(seq 1 60); do
 done
 [ "$PG_READY" = true ] || die "PostgreSQL did not become ready. Check: docker compose logs postgres"
 ok "PostgreSQL ready"
-
-# The realm name is defined by the file Keycloak imports at startup, not by
-# .env, so read it from there rather than trusting a duplicate setting.
-KC_REALM="$(node -p "require('./auth/realm-export.json').realm")"
-info "Waiting for Keycloak realm '$KC_REALM'..."
-KC_READY=false
-for _ in $(seq 1 90); do
-    if curl -fsS "http://localhost:8080/realms/$KC_REALM" >/dev/null 2>&1; then
-        KC_READY=true; break
-    fi
-    sleep 2
-done
-if [ "$KC_READY" = true ]; then
-    ok "Keycloak ready"
-else
-    warn "Keycloak realm not reachable yet; the login page may fail to load."
-    warn "Check: docker compose logs keycloak"
-fi
 
 # ----------------------------------------------------------------------------
 step 4 "Applying database schema..."
@@ -235,13 +214,13 @@ step 4 "Applying database schema..."
 if ! npx prisma db push \
         --schema=services/shared/prisma/schema.prisma \
         --skip-generate </dev/null >"$LOG_DIR/db-push.log" 2>&1; then
-    # Keycloak used to share this database, so a volume created before that
-    # was fixed still has ~90 Keycloak tables sitting in `public`. Prisma sees
-    # them as foreign and refuses to continue rather than dropping them.
+    # A postgres volume from an older revision of this project can still hold
+    # tables in `public` that are not in schema.prisma. Prisma sees them as
+    # foreign and refuses to continue rather than dropping them.
     if grep -q 'You are about to drop' "$LOG_DIR/db-push.log"; then
         die "The database contains tables Prisma does not manage.
-   This usually means the postgres volume predates Keycloak getting its own
-   database. Recreate it (this deletes local demo data only):
+   This usually means the postgres volume predates the current schema.
+   Recreate it (this deletes local demo data only):
      ./scripts/stop-demo.sh --clean && ./scripts/start-demo.sh"
     fi
     tail -20 "$LOG_DIR/db-push.log" >&2
@@ -299,7 +278,7 @@ for idx in "${!SERVICE_NAMES[@]}"; do
     port="${SERVICE_PORTS[$idx]}"
     [ -f "services/$name/dist/main.js" ] \
         || die "services/$name is not built. Re-run without --skip-build."
-    ( cd "services/$name" && PORT="$port" exec node dist/main ) \
+    ( cd "services/$name" && PORT="$port" AUTH_MODE="${AUTH_MODE:-demo}" exec node dist/main ) \
         </dev/null >"$LOG_DIR/$name.log" 2>&1 &
     record_pid "$name" "$!"
 done
@@ -341,9 +320,13 @@ step 8 "Starting frontend..."
 
 # Bind to 127.0.0.1 explicitly: Vite's default binds IPv6 loopback only on
 # some systems, which some browsers and curl builds cannot reach. --strictPort
-# stops Vite from silently moving to another port, which would break
-# Keycloak's redirect URI allow-list.
-( cd frontend && exec npm run dev -- --host 127.0.0.1 --port "$FRONTEND_PORT" --strictPort ) \
+# stops Vite from silently moving to another port, which would take the app
+# off the origin Firebase authorises for sign-in redirects.
+# VITE_AUTH_MODE is defaulted here, not only in env.development, so the demo
+# still works for anyone whose .env predates that variable. Vite exposes
+# VITE_-prefixed variables from the environment, and the sign-in bypass is
+# additionally gated on import.meta.env.DEV, so it cannot reach a prod build.
+( cd frontend && VITE_AUTH_MODE="${VITE_AUTH_MODE:-demo}" exec npm run dev -- --host 127.0.0.1 --port "$FRONTEND_PORT" --strictPort ) \
     </dev/null >"$LOG_DIR/frontend.log" 2>&1 &
 record_pid "frontend" "$!"
 
@@ -368,16 +351,14 @@ echo "   You are signed in as John Doe (admin) of the demo organization."
 echo ""
 echo -e "${BLUE}🔧 Other endpoints:${NC}"
 echo "   Controls API health   http://localhost:3001/api/system/health"
-echo "   Keycloak admin        http://localhost:8080  (${KEYCLOAK_ADMIN:-admin} / ${KEYCLOAK_ADMIN_PASSWORD:-admin})"
 echo "   MinIO console         http://localhost:9001  (${MINIO_ROOT_USER:-minioadmin} / ${MINIO_ROOT_PASSWORD:-minioadmin})"
 echo ""
 echo -e "${BLUE}📄 Logs:${NC} .demo/logs/"
 echo ""
 
 if [ "$OPEN_BROWSER" = true ]; then
-    # Always open localhost, never 127.0.0.1: the Keycloak client in
-    # auth/realm-export.json only allows http://localhost:3000/* as a
-    # redirect URI.
+    # Always open localhost, never 127.0.0.1: Firebase authorised domains and
+    # the OAuth redirect are registered for http://localhost:3000.
     case "${OSTYPE:-}" in
         darwin*)          open "http://localhost:3000" 2>/dev/null || true ;;
         linux*)           command -v xdg-open >/dev/null && (xdg-open "http://localhost:3000" >/dev/null 2>&1 &) || true ;;

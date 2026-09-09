@@ -18,16 +18,16 @@ import {
 import { MappingsService } from './mappings.service';
 import { CreateMappingDto, BulkCreateMappingsDto } from './dto/mapping.dto';
 import {
-  Roles,
   CurrentUser,
+  FirebaseAuthGuard,
+  Roles,
   UserContext,
 } from '@gigachad-grc/shared';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
 
 @ApiTags('mappings')
 @ApiBearerAuth()
 @Controller('api/mappings')
-@UseGuards(DevAuthGuard)
+@UseGuards(FirebaseAuthGuard)
 export class MappingsController {
   constructor(private readonly mappingsService: MappingsService) {}
 

@@ -39,17 +39,13 @@ services:
       - "5433:5432"  # Using 5433 externally to avoid conflicts
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      # Only ./database/bootstrap is mounted here. It creates the separate
-      # `keycloak` database and nothing else.
-      #
-      # ./database/init is deliberately NOT mounted: those scripts are
-      # incremental patches that ALTER tables owned by Prisma, so on a fresh
-      # volume the very first one (02-soft-delete-migration.sql) fails with
+      # No initdb scripts are mounted here. ./database/init holds incremental
+      # patches that ALTER tables owned by Prisma, so on a fresh volume the
+      # very first one (02-soft-delete-migration.sql) fails with
       # `relation "controls" does not exist`. Postgres runs initdb scripts with
       # ON_ERROR_STOP=1, so that aborted the whole container and left a
       # half-initialised, table-less database behind. The application schema is
       # created by `prisma db push` instead — see scripts/start-demo.sh.
-      - ./database/bootstrap:/docker-entrypoint-initdb.d:ro
     networks:
       - grc-network
     restart: unless-stopped
@@ -60,45 +56,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-
-  # ===========================================
-  # Authentication - Keycloak (Official Keycloak Image)
-  # ===========================================
-  keycloak:
-    image: quay.io/keycloak/keycloak:25.0
-    container_name: grc-keycloak
-    command: start-dev --import-realm
-    environment:
-      KC_DB: postgres
-      # Keycloak owns its own database, created by
-      # database/bootstrap/00-create-keycloak-db.sql. Sharing the application
-      # database would put ~90 Keycloak tables into the same `public` schema
-      # that Prisma manages, and `prisma db push` would then try to drop them.
-      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
-      KC_DB_USERNAME: ${POSTGRES_USER:-grc}
-      KC_DB_PASSWORD: ${POSTGRES_PASSWORD:-grc_secret}
-      KC_HOSTNAME: ${KEYCLOAK_HOSTNAME:-localhost}
-      KC_HOSTNAME_PORT: ${KEYCLOAK_PORT:-8080}
-      KC_HOSTNAME_STRICT: "false"
-      KC_HTTP_ENABLED: "true"
-      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
-      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
-    ports:
-      - "8080:8080"
-    volumes:
-      - ./auth/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks:
-      - grc-network
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.keycloak.rule=Host(`auth.localhost`)"
-      - "traefik.http.services.keycloak.loadbalancer.server.port=8080"
-    restart: unless-stopped
-    security_opt:
-      - no-new-privileges:true
 
   # ===========================================
   # Object Storage - MinIO (Official MinIO Image)
@@ -143,8 +100,16 @@ services:
       MINIO_USE_SSL: ${MINIO_USE_SSL:-false}
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
-      KEYCLOAK_URL: http://keycloak:8080
-      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-grc}
+      # Firebase Authentication (Google provider only). The ID token proves
+      # IDENTITY ONLY - role, permissions and organization are read from
+      # PostgreSQL on every request, never from token claims. AUTH_MODE=demo
+      # loads the seeded demo identity through that same database path and
+      # hard-throws when NODE_ENV=production.
+      AUTH_MODE: ${AUTH_MODE:-demo}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
+      ALLOWED_EMAIL_DOMAINS: ${ALLOWED_EMAIL_DOMAINS:-}
+      AUTH_AUTO_PROVISION: ${AUTH_AUTO_PROVISION:-false}
+      AUTH_DEFAULT_ORG_ID: ${AUTH_DEFAULT_ORG_ID:-}
       # Security secrets
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
       JWT_SECRET: ${JWT_SECRET:-}
@@ -160,8 +125,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      keycloak:
-        condition: service_started
       minio:
         condition: service_healthy
     networks:
@@ -192,15 +155,21 @@ services:
       MINIO_USE_SSL: false
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
-      KEYCLOAK_URL: http://keycloak:8080
-      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-grc}
+      # Firebase Authentication (Google provider only). The ID token proves
+      # IDENTITY ONLY - role, permissions and organization are read from
+      # PostgreSQL on every request, never from token claims. AUTH_MODE=demo
+      # loads the seeded demo identity through that same database path and
+      # hard-throws when NODE_ENV=production.
+      AUTH_MODE: ${AUTH_MODE:-demo}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
+      ALLOWED_EMAIL_DOMAINS: ${ALLOWED_EMAIL_DOMAINS:-}
+      AUTH_AUTO_PROVISION: ${AUTH_AUTO_PROVISION:-false}
+      AUTH_DEFAULT_ORG_ID: ${AUTH_DEFAULT_ORG_ID:-}
     ports:
       - "3002:3002"
     depends_on:
       postgres:
         condition: service_healthy
-      keycloak:
-        condition: service_started
       minio:
         condition: service_healthy
     networks:
@@ -231,15 +200,21 @@ services:
       MINIO_USE_SSL: false
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
-      KEYCLOAK_URL: http://keycloak:8080
-      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-grc}
+      # Firebase Authentication (Google provider only). The ID token proves
+      # IDENTITY ONLY - role, permissions and organization are read from
+      # PostgreSQL on every request, never from token claims. AUTH_MODE=demo
+      # loads the seeded demo identity through that same database path and
+      # hard-throws when NODE_ENV=production.
+      AUTH_MODE: ${AUTH_MODE:-demo}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
+      ALLOWED_EMAIL_DOMAINS: ${ALLOWED_EMAIL_DOMAINS:-}
+      AUTH_AUTO_PROVISION: ${AUTH_AUTO_PROVISION:-false}
+      AUTH_DEFAULT_ORG_ID: ${AUTH_DEFAULT_ORG_ID:-}
     ports:
       - "3004:3004"
     depends_on:
       postgres:
         condition: service_healthy
-      keycloak:
-        condition: service_started
       minio:
         condition: service_healthy
     networks:
@@ -269,15 +244,21 @@ services:
       MINIO_USE_SSL: false
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
-      KEYCLOAK_URL: http://keycloak:8080
-      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-grc}
+      # Firebase Authentication (Google provider only). The ID token proves
+      # IDENTITY ONLY - role, permissions and organization are read from
+      # PostgreSQL on every request, never from token claims. AUTH_MODE=demo
+      # loads the seeded demo identity through that same database path and
+      # hard-throws when NODE_ENV=production.
+      AUTH_MODE: ${AUTH_MODE:-demo}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
+      ALLOWED_EMAIL_DOMAINS: ${ALLOWED_EMAIL_DOMAINS:-}
+      AUTH_AUTO_PROVISION: ${AUTH_AUTO_PROVISION:-false}
+      AUTH_DEFAULT_ORG_ID: ${AUTH_DEFAULT_ORG_ID:-}
     ports:
       - "3005:3005"
     depends_on:
       postgres:
         condition: service_healthy
-      keycloak:
-        condition: service_started
       minio:
         condition: service_healthy
     networks:
@@ -310,15 +291,21 @@ services:
       MINIO_USE_SSL: false
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
-      KEYCLOAK_URL: http://keycloak:8080
-      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-grc}
+      # Firebase Authentication (Google provider only). The ID token proves
+      # IDENTITY ONLY - role, permissions and organization are read from
+      # PostgreSQL on every request, never from token claims. AUTH_MODE=demo
+      # loads the seeded demo identity through that same database path and
+      # hard-throws when NODE_ENV=production.
+      AUTH_MODE: ${AUTH_MODE:-demo}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
+      ALLOWED_EMAIL_DOMAINS: ${ALLOWED_EMAIL_DOMAINS:-}
+      AUTH_AUTO_PROVISION: ${AUTH_AUTO_PROVISION:-false}
+      AUTH_DEFAULT_ORG_ID: ${AUTH_DEFAULT_ORG_ID:-}
     ports:
       - "3006:3006"
     depends_on:
       postgres:
         condition: service_healthy
-      keycloak:
-        condition: service_started
       minio:
         condition: service_healthy
     networks:
@@ -350,15 +337,21 @@ services:
       MINIO_USE_SSL: false
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
-      KEYCLOAK_URL: http://keycloak:8080
-      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-grc}
+      # Firebase Authentication (Google provider only). The ID token proves
+      # IDENTITY ONLY - role, permissions and organization are read from
+      # PostgreSQL on every request, never from token claims. AUTH_MODE=demo
+      # loads the seeded demo identity through that same database path and
+      # hard-throws when NODE_ENV=production.
+      AUTH_MODE: ${AUTH_MODE:-demo}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
+      ALLOWED_EMAIL_DOMAINS: ${ALLOWED_EMAIL_DOMAINS:-}
+      AUTH_AUTO_PROVISION: ${AUTH_AUTO_PROVISION:-false}
+      AUTH_DEFAULT_ORG_ID: ${AUTH_DEFAULT_ORG_ID:-}
     ports:
       - "3007:3007"
     depends_on:
       postgres:
         condition: service_healthy
-      keycloak:
-        condition: service_started
       minio:
         condition: service_healthy
     networks:

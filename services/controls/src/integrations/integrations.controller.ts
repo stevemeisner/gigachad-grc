@@ -19,12 +19,12 @@ import {
   IntegrationFilterDto,
 } from './dto/integration.dto';
 import { SaveCustomConfigDto, TestEndpointDto } from './custom/dto/custom-config.dto';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { FirebaseAuthGuard } from '@gigachad-grc/shared';
 
 @ApiTags('integrations')
 @ApiBearerAuth()
 @Controller('api/integrations')
-@UseGuards(DevAuthGuard)
+@UseGuards(FirebaseAuthGuard)
 export class IntegrationsController {
   constructor(
     private readonly integrationsService: IntegrationsService,

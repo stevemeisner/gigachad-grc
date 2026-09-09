@@ -30,16 +30,16 @@ import {
   BulkUploadResultDto,
 } from './dto/control.dto';
 import {
-  Roles,
   CurrentUser,
+  FirebaseAuthGuard,
+  Roles,
   UserContext,
 } from '@gigachad-grc/shared';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
 
 @ApiTags('controls')
 @ApiBearerAuth()
 @Controller('api/controls')
-@UseGuards(DevAuthGuard)
+@UseGuards(FirebaseAuthGuard)
 export class ControlsController {
   constructor(private readonly controlsService: ControlsService) {}
 

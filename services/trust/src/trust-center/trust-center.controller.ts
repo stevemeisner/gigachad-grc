@@ -13,11 +13,10 @@ import { TrustCenterService } from './trust-center.service';
 import { UpdateTrustCenterConfigDto } from './dto/update-config.dto';
 import { CreateTrustCenterContentDto } from './dto/create-content.dto';
 import { UpdateTrustCenterContentDto } from './dto/update-content.dto';
-import { CurrentUser, UserContext } from '@gigachad-grc/shared';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { CurrentUser, FirebaseAuthGuard, UserContext } from '@gigachad-grc/shared';
 
 @Controller('trust-center')
-@UseGuards(DevAuthGuard)
+@UseGuards(FirebaseAuthGuard)
 export class TrustCenterController {
   constructor(private readonly trustCenterService: TrustCenterService) {}
 

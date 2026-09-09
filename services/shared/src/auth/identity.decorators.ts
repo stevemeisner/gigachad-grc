@@ -12,8 +12,8 @@ import { UserContext } from '../types';
  *
  * Those headers are supplied by the client. Anyone who could reach a service
  * could name any organization and read or write its data, because the value
- * was passed unchecked into the query. It only looked safe because
- * DevAuthGuard happened to overwrite those headers on the way in.
+ * was passed unchecked into the query. It only looked safe because the
+ * since-removed DevAuthGuard overwrote those headers on the way in.
  *
  * These decorators read `request.user`, which is populated by the route's
  * auth guard from a verified token and cannot be influenced by the caller.

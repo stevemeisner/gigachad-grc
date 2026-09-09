@@ -6,7 +6,7 @@ import { UserStatus, UserRole } from '@prisma/client';
 import {
   CreateUserDto,
   UpdateUserDto,
-  SyncUserFromKeycloakDto,
+  SyncUserFromProviderDto,
   UserFilterDto,
   UserResponseDto,
   UserListResponseDto,
@@ -108,11 +108,11 @@ export class UsersService {
   }
 
   /**
-   * Get user by Keycloak ID (for login sync)
+   * Get user by identity-provider subject id (for login sync)
    */
-  async findByKeycloakId(keycloakId: string): Promise<UserResponseDto | null> {
+  async findByExternalId(externalId: string): Promise<UserResponseDto | null> {
     const user = await this.prisma.user.findUnique({
-      where: { keycloakId },
+      where: { externalId },
       include: {
         groupMemberships: {
           include: {
@@ -128,25 +128,25 @@ export class UsersService {
   }
 
   /**
-   * Sync user from Keycloak on login
-   * Creates user if doesn't exist, updates if does
+   * Sync a user from the identity provider on login.
+   * Creates the user if they don't exist, updates them if they do.
    */
-  async syncFromKeycloak(
+  async syncFromProvider(
     organizationId: string,
-    dto: SyncUserFromKeycloakDto,
+    dto: SyncUserFromProviderDto,
   ): Promise<UserResponseDto> {
     const displayName = dto.firstName && dto.lastName
       ? `${dto.firstName} ${dto.lastName}`
       : dto.email.split('@')[0];
 
     let user = await this.prisma.user.findUnique({
-      where: { keycloakId: dto.keycloakId },
+      where: { externalId: dto.externalId },
     });
 
     if (user) {
       // Update existing user
       user = await this.prisma.user.update({
-        where: { keycloakId: dto.keycloakId },
+        where: { externalId: dto.externalId },
         data: {
           email: dto.email,
           firstName: dto.firstName || '',
@@ -161,7 +161,7 @@ export class UsersService {
       // Create new user
       user = await this.prisma.user.create({
         data: {
-          keycloakId: dto.keycloakId,
+          externalId: dto.externalId,
           organizationId,
           email: dto.email,
           firstName: dto.firstName || '',
@@ -186,7 +186,7 @@ export class UsersService {
         this.logger.warn(`Failed to assign default group for user ${user.email}: ${error.message}`);
       }
 
-      this.logger.log(`Created new user from Keycloak: ${user.email}`);
+      this.logger.log(`Created new user from identity provider: ${user.email}`);
 
       // Audit log
       await this.auditService.log({
@@ -197,7 +197,7 @@ export class UsersService {
         entityType: 'user',
         entityId: user.id,
         entityName: user.displayName,
-        description: `User "${user.displayName}" created via Keycloak sync`,
+        description: `User "${user.displayName}" created via identity provider sync`,
       });
     }
 
@@ -217,21 +217,21 @@ export class UsersService {
       where: {
         organizationId,
         OR: [
-          { keycloakId: dto.keycloakId },
+          { externalId: dto.externalId },
           { email: dto.email },
         ],
       },
     });
 
     if (existing) {
-      throw new ConflictException('User with this email or Keycloak ID already exists');
+      throw new ConflictException('User with this email or external ID already exists');
     }
 
     const displayName = dto.displayName || `${dto.firstName} ${dto.lastName}`;
 
     const user = await this.prisma.user.create({
       data: {
-        keycloakId: dto.keycloakId,
+        externalId: dto.externalId,
         organizationId,
         email: dto.email,
         firstName: dto.firstName,
@@ -407,7 +407,7 @@ export class UsersService {
   private toResponseDto(user: any): UserResponseDto {
     return {
       id: user.id,
-      keycloakId: user.keycloakId,
+      externalId: user.externalId,
       email: user.email,
       firstName: user.firstName,
       lastName: user.lastName,

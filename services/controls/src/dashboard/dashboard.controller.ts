@@ -8,14 +8,14 @@ import {
 import { DashboardService } from './dashboard.service';
 import {
   CurrentUser,
+  FirebaseAuthGuard,
   UserContext,
 } from '@gigachad-grc/shared';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
 
 @ApiTags('dashboard')
 @ApiBearerAuth()
 @Controller('api/dashboard')
-@UseGuards(DevAuthGuard)
+@UseGuards(FirebaseAuthGuard)
 export class DashboardController {
   constructor(private readonly dashboardService: DashboardService) {}
 

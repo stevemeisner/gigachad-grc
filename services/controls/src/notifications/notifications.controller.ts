@@ -11,7 +11,7 @@ import {
   HttpStatus,
   UseGuards,
 } from '@nestjs/common';
-import { UserId } from '@gigachad-grc/shared';
+import { FirebaseAuthGuard, UserId } from '@gigachad-grc/shared';
 import { NotificationsService } from './notifications.service';
 import {
   NotificationFilterDto,
@@ -20,10 +20,9 @@ import {
   NotificationStatsDto,
   NotificationPreferenceResponseDto,
 } from './dto/notification.dto';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
 
 @Controller('api/notifications')
-@UseGuards(DevAuthGuard)
+@UseGuards(FirebaseAuthGuard)
 export class NotificationsController {
   constructor(private readonly notificationsService: NotificationsService) {}
 

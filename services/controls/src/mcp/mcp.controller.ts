@@ -17,7 +17,7 @@ import {
   ApiParam,
 } from '@nestjs/swagger';
 import { MCPClientService } from './mcp-client.service';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { FirebaseAuthGuard } from '@gigachad-grc/shared';
 import { PermissionGuard } from '../auth/permission.guard';
 import { RequirePermission } from '../auth/decorators/require-permission.decorator';
 import { Resource, Action } from '../permissions/dto/permission.dto';
@@ -36,7 +36,7 @@ class GetPromptDto {
 @ApiTags('MCP Servers')
 @ApiBearerAuth()
 @Controller('api/mcp')
-@UseGuards(DevAuthGuard, PermissionGuard)
+@UseGuards(FirebaseAuthGuard, PermissionGuard)
 export class MCPController {
   constructor(private readonly mcpClient: MCPClientService) {}
 

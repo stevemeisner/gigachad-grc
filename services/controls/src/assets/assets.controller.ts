@@ -20,7 +20,7 @@ import {
   ApiParam,
 } from '@nestjs/swagger';
 import { AssetsService } from './assets.service';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { FirebaseAuthGuard } from '@gigachad-grc/shared';
 import { PermissionGuard } from '../auth/permission.guard';
 import { RequirePermission } from '../auth/decorators/require-permission.decorator';
 import { Resource, Action } from '../permissions/dto/permission.dto';
@@ -34,7 +34,7 @@ import {
 @ApiTags('Assets')
 @ApiBearerAuth()
 @Controller('api/assets')
-@UseGuards(DevAuthGuard, PermissionGuard)
+@UseGuards(FirebaseAuthGuard, PermissionGuard)
 export class AssetsController {
   constructor(private readonly assetsService: AssetsService) {}
 

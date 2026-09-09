@@ -18,13 +18,12 @@ import {
 } from '@nestjs/swagger';
 import { RunbooksService } from './runbooks.service';
 import { CreateRunbookDto, UpdateRunbookDto, CreateRunbookStepDto, RunbookStatus } from './dto/bcdr.dto';
-import { CurrentUser, UserContext } from '@gigachad-grc/shared';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { CurrentUser, FirebaseAuthGuard, UserContext } from '@gigachad-grc/shared';
 
 @ApiTags('bcdr/runbooks')
 @ApiBearerAuth()
 @Controller('api/bcdr/runbooks')
-@UseGuards(DevAuthGuard)
+@UseGuards(FirebaseAuthGuard)
 export class RunbooksController {
   constructor(private readonly runbooksService: RunbooksService) {}
 

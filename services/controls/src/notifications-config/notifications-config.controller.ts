@@ -13,8 +13,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagg
 import { NotificationsConfigService } from './notifications-config.service';
 import { SlackNotificationsService } from './slack-notifications.service';
 import { ConfigurableEmailService } from './configurable-email.service';
-import { CurrentUser, UserContext } from '@gigachad-grc/shared';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { CurrentUser, FirebaseAuthGuard, UserContext } from '@gigachad-grc/shared';
 import {
   UpdateEmailConfigDto,
   UpdateSlackConfigDto,
@@ -28,7 +27,7 @@ import {
 @ApiTags('Notification Configuration')
 @ApiBearerAuth()
 @Controller('api/notifications-config')
-@UseGuards(DevAuthGuard)
+@UseGuards(FirebaseAuthGuard)
 export class NotificationsConfigController {
   constructor(
     private readonly configService: NotificationsConfigService,

@@ -6,11 +6,10 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { TrustAiService } from './trust-ai.service';
-import { CurrentUser, UserContext } from '@gigachad-grc/shared';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { CurrentUser, FirebaseAuthGuard, UserContext } from '@gigachad-grc/shared';
 
 @Controller('trust-ai')
-@UseGuards(DevAuthGuard)
+@UseGuards(FirebaseAuthGuard)
 export class TrustAiController {
   constructor(private readonly aiService: TrustAiService) {}
 

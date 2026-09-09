@@ -11,8 +11,7 @@ import {
   HttpStatus,
   UseGuards,
 } from '@nestjs/common';
-import { OrgId, UserEmail, UserId } from '@gigachad-grc/shared';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { FirebaseAuthGuard, OrgId, UserEmail, UserId } from '@gigachad-grc/shared';
 import { GroupsService } from './groups.service';
 import { PermissionsService } from './permissions.service';
 import {
@@ -27,7 +26,7 @@ import { PermissionGuard } from '../auth/permission.guard';
 import { RequirePermission } from '../auth/decorators/require-permission.decorator';
 
 @Controller('api/permissions')
-@UseGuards(DevAuthGuard)
+@UseGuards(FirebaseAuthGuard)
 export class PermissionsController {
   constructor(
     private readonly groupsService: GroupsService,
@@ -220,8 +219,12 @@ export class PermissionsController {
   // Seed Default Groups
   // ===========================
 
+  // Bootstrapping a tenant's default permission groups is a write, so it runs
+  // behind the class-level auth guard like every other route here and takes
+  // its organization from the verified session rather than a client header.
   @Post('seed')
-  // No auth required for bootstrapping
+  @UseGuards(PermissionGuard)
+  @RequirePermission(Resource.PERMISSIONS, Action.CREATE)
   async seedDefaultGroups(
     @OrgId() orgId: string,
   ) {

@@ -8,11 +8,10 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { TrustConfigService, UpdateTrustConfigDto } from './trust-config.service';
-import { CurrentUser, UserContext } from '@gigachad-grc/shared';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { CurrentUser, FirebaseAuthGuard, UserContext } from '@gigachad-grc/shared';
 
 @Controller('trust-config')
-@UseGuards(DevAuthGuard)
+@UseGuards(FirebaseAuthGuard)
 export class TrustConfigController {
   constructor(private readonly configService: TrustConfigService) {}
 

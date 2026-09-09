@@ -30,13 +30,12 @@ import {
   UpdatePolicyStatusDto,
   PolicyFilterDto,
 } from './dto/policy.dto';
-import { CurrentUser, UserContext } from '@gigachad-grc/shared';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { CurrentUser, FirebaseAuthGuard, UserContext } from '@gigachad-grc/shared';
 import { Response } from 'express';
 
 @ApiTags('policies')
 @ApiBearerAuth()
-@UseGuards(DevAuthGuard)
+@UseGuards(FirebaseAuthGuard)
 @Controller('api/policies')
 export class PoliciesController {
   constructor(private readonly policiesService: PoliciesService) {}

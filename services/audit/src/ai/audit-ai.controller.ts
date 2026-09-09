@@ -1,7 +1,7 @@
 import { Controller, Post, Body, UseGuards, Req } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { AuditAIService } from './audit-ai.service';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { FirebaseAuthGuard } from '@gigachad-grc/shared';
 import {
   CategorizeFindingDto,
   FindingCategorizationResult,
@@ -17,7 +17,7 @@ import {
 
 @ApiTags('Audit AI')
 @ApiBearerAuth()
-@UseGuards(DevAuthGuard)
+@UseGuards(FirebaseAuthGuard)
 @Controller('audit-ai')
 export class AuditAIController {
   constructor(private readonly auditAIService: AuditAIService) {}

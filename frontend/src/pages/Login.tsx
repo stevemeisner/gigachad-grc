@@ -69,7 +69,7 @@ export default function Login() {
             onClick={login}
             className="btn-primary w-full py-3 text-base"
           >
-            Sign in with SSO
+            Sign in with Google
           </button>
 
           {/* Dev login option */}
@@ -91,12 +91,6 @@ export default function Login() {
               </button>
             </>
           )}
-
-          <div className="mt-6 text-center">
-            <p className="text-sm text-surface-500">
-              Powered by Keycloak authentication
-            </p>
-          </div>
         </div>
 
         {/* Footer */}

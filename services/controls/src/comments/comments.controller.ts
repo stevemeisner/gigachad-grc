@@ -16,13 +16,12 @@ import {
   ApiBearerAuth,
 } from '@nestjs/swagger';
 import { CommentsService } from './comments.service';
-import { CurrentUser, UserContext } from '@gigachad-grc/shared';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { CurrentUser, FirebaseAuthGuard, UserContext } from '@gigachad-grc/shared';
 
 @ApiTags('comments')
 @ApiBearerAuth()
 @Controller('api/comments')
-@UseGuards(DevAuthGuard)
+@UseGuards(FirebaseAuthGuard)
 export class CommentsController {
   constructor(private readonly commentsService: CommentsService) {}
 

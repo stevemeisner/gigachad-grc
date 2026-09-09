@@ -1541,8 +1541,8 @@ function SupabaseVercelMigrationArticle() {
             <h4 className="font-semibold text-surface-200 mb-2">Previous Architecture</h4>
             <ul className="text-surface-400 text-sm space-y-1">
               <li>• 6 NestJS microservices</li>
-              <li>• PostgreSQL + Redis + MinIO</li>
-              <li>• Keycloak authentication</li>
+              <li>• PostgreSQL + MinIO</li>
+              <li>• Firebase Authentication (Google sign-in)</li>
               <li>• Docker Compose orchestration</li>
             </ul>
           </div>
@@ -1562,7 +1562,7 @@ function SupabaseVercelMigrationArticle() {
         <h2 className="text-2xl font-bold text-surface-100 mb-4">Migration Phases</h2>
         <div className="space-y-4">
           {[
-            { phase: '1', title: 'Authentication Migration', desc: 'Replace Keycloak with Okta OIDC', time: '2-3 days' },
+            { phase: '1', title: 'Authentication Migration', desc: 'Replace Firebase Authentication with Okta OIDC', time: '2-3 days' },
             { phase: '2', title: 'Database Migration', desc: 'Move PostgreSQL to Supabase', time: '1 day' },
             { phase: '3', title: 'API Migration', desc: 'Convert NestJS to Vercel functions', time: '5-7 days' },
             { phase: '4', title: 'Storage Migration', desc: 'Move MinIO to Supabase Storage', time: '1-2 days' },

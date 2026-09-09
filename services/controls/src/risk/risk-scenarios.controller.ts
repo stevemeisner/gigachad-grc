@@ -12,9 +12,8 @@ import {
   ValidationPipe,
   UseGuards,
 } from '@nestjs/common';
-import { OrgId, UserId } from '@gigachad-grc/shared';
+import { FirebaseAuthGuard, OrgId, UserId } from '@gigachad-grc/shared';
 import { RiskScenariosService } from './risk-scenarios.service';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
 import { PermissionGuard } from '../auth/permission.guard';
 import { RequirePermission } from '../auth/decorators/require-permission.decorator';
 import { Resource, Action } from '../permissions/dto/permission.dto';
@@ -26,7 +25,7 @@ import {
 } from './dto/risk-scenario.dto';
 
 @Controller('api/risk-scenarios')
-@UseGuards(DevAuthGuard, PermissionGuard)
+@UseGuards(FirebaseAuthGuard, PermissionGuard)
 export class RiskScenariosController {
   constructor(private readonly riskScenariosService: RiskScenariosService) {}
 

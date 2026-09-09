@@ -1,8 +1,7 @@
 import { Body, Controller, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { MCPWorkflowService } from './mcp-workflow.service';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
-import { CurrentUser, UserContext } from '@gigachad-grc/shared';
+import { CurrentUser, FirebaseAuthGuard, UserContext } from '@gigachad-grc/shared';
 import { PermissionGuard } from '../auth/permission.guard';
 import { RequirePermission } from '../auth/decorators/require-permission.decorator';
 import { Resource, Action } from '../permissions/dto/permission.dto';
@@ -13,7 +12,7 @@ class AnalyzeRiskDto {
 
 @ApiTags('ai')
 @ApiBearerAuth()
-@UseGuards(DevAuthGuard, PermissionGuard)
+@UseGuards(FirebaseAuthGuard, PermissionGuard)
 @Controller('api/mcp/ai')
 export class AIController {
   constructor(private readonly workflows: MCPWorkflowService) {}

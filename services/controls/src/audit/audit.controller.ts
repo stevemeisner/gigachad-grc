@@ -11,7 +11,7 @@ import {
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { Response, Request } from 'express';
 import { AuditService } from './audit.service';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { FirebaseAuthGuard } from '@gigachad-grc/shared';
 import { AuditLogFilterDto } from './dto/audit.dto';
 
 interface AuthenticatedRequest extends Request {
@@ -26,7 +26,7 @@ interface AuthenticatedRequest extends Request {
 @ApiTags('Audit')
 @ApiBearerAuth()
 @Controller('api/audit')
-@UseGuards(DevAuthGuard)
+@UseGuards(FirebaseAuthGuard)
 export class AuditController {
   constructor(private readonly auditService: AuditService) {}
 

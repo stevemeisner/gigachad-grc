@@ -10,24 +10,23 @@ import {
   HttpStatus,
   UseGuards,
 } from '@nestjs/common';
-import { OrgId, UserEmail, UserId } from '@gigachad-grc/shared';
+import { FirebaseAuthGuard, OrgId, UserEmail, UserId } from '@gigachad-grc/shared';
 import { UsersService } from './users.service';
 import { PermissionsService } from '../permissions/permissions.service';
 import { GroupsService } from '../permissions/groups.service';
 import {
   CreateUserDto,
   UpdateUserDto,
-  SyncUserFromKeycloakDto,
+  SyncUserFromProviderDto,
   UserFilterDto,
 } from './dto/user.dto';
 import { PermissionGuard } from '../auth/permission.guard';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
 import { RequirePermission } from '../auth/decorators/require-permission.decorator';
 import { Resource, Action } from '../permissions/dto/permission.dto';
 import { PaginationLimitPipe, PaginationPagePipe } from '../common/pagination.pipe';
 
 @Controller('api/users')
-@UseGuards(DevAuthGuard, PermissionGuard)
+@UseGuards(FirebaseAuthGuard, PermissionGuard)
 export class UsersController {
   constructor(
     private readonly usersService: UsersService,
@@ -183,20 +182,20 @@ export class UsersController {
   }
 
   // ===========================
-  // Keycloak Sync
+  // Identity Provider Sync
   // ===========================
 
   @Post('sync')
-  async syncFromKeycloak(
-    @Body() dto: SyncUserFromKeycloakDto,
+  async syncFromProvider(
+    @Body() dto: SyncUserFromProviderDto,
     @OrgId() orgId: string,
   ) {
-    return this.usersService.syncFromKeycloak(orgId, dto);
+    return this.usersService.syncFromProvider(orgId, dto);
   }
 
-  @Get('keycloak/:keycloakId')
-  async getUserByKeycloakId(@Param('keycloakId') keycloakId: string) {
-    return this.usersService.findByKeycloakId(keycloakId);
+  @Get('external/:externalId')
+  async getUserByExternalId(@Param('externalId') externalId: string) {
+    return this.usersService.findByExternalId(externalId);
   }
 }
 

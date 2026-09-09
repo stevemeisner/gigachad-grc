@@ -13,6 +13,7 @@ import { RemediationModule } from './remediation/remediation.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { PlanningModule } from './planning/planning.module';
 import { ReportsModule } from './reports/reports.module';
+import { HealthModule } from '@gigachad-grc/shared';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { ReportsModule } from './reports/reports.module';
       isGlobal: true,
     }),
     PrismaModule,
+    HealthModule,
     AuditsModule,
     RequestsModule,
     FindingsModule,

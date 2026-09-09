@@ -10,6 +10,7 @@ import { Button } from '@/components/Button';
 import { SkeletonGrid } from '@/components/Skeleton';
 import { EmptyState, NoResultsEmptyState } from '@/components/EmptyState';
 import toast from 'react-hot-toast';
+import { api } from '@/lib/api';
 
 interface AuditRequest {
   id: string;
@@ -80,14 +81,8 @@ export default function AuditRequests() {
       if (auditFilter) params.append('auditId', auditFilter);
       if (priorityFilter) params.append('priority', priorityFilter);
 
-      const response = await fetch(`/api/audit-requests?${params}`, {
-        headers: {
-          'x-organization-id': 'default-org',
-          'x-user-id': 'system',
-        },
-      });
-      const data = await response.json();
-      setRequests(data);
+      const response = await api.get(`/api/audit-requests?${params}`);
+      setRequests(response.data);
     } catch (error) {
       console.error('Error fetching requests:', error);
       toast.error('Failed to load audit requests');

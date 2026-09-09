@@ -2,7 +2,7 @@ import { IsString, IsOptional, IsArray, IsEnum, IsEmail } from 'class-validator'
 
 export class CreateUserDto {
   @IsString()
-  keycloakId: string;
+  externalId: string;
 
   @IsEmail()
   email: string;
@@ -44,9 +44,10 @@ export class UpdateUserDto {
   status?: string;
 }
 
-export class SyncUserFromKeycloakDto {
+/** Upsert payload for a user identified by their identity-provider subject. */
+export class SyncUserFromProviderDto {
   @IsString()
-  keycloakId: string;
+  externalId: string;
 
   @IsEmail()
   email: string;
@@ -85,7 +86,7 @@ export class UserFilterDto {
 
 export class UserResponseDto {
   id: string;
-  keycloakId: string;
+  externalId: string;
   email: string;
   firstName: string;
   lastName: string;

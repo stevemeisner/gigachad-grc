@@ -44,8 +44,9 @@ export const RequireAnyPermission = (...permissions: RequiredPermission[]) =>
  * It must NOT be rebuilt from `x-user-id` / `x-organization-id` headers:
  * those are attacker-controlled on any request that reaches the service
  * directly, so trusting them would let a caller act as any user in any
- * organization. DevAuthGuard happens to set them today, which is why the
- * old header-reading version appeared to work.
+ * organization. The since-removed DevAuthGuard used to set them on the way
+ * in, which is the only reason the old header-reading version appeared to
+ * work.
  */
 export const CurrentUser = createParamDecorator(
   (data: unknown, ctx: ExecutionContext): UserContext =>

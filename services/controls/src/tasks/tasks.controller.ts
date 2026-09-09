@@ -16,13 +16,12 @@ import {
   ApiBearerAuth,
 } from '@nestjs/swagger';
 import { TasksService } from './tasks.service';
-import { CurrentUser, UserContext } from '@gigachad-grc/shared';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { CurrentUser, FirebaseAuthGuard, UserContext } from '@gigachad-grc/shared';
 
 @ApiTags('tasks')
 @ApiBearerAuth()
 @Controller('api/tasks')
-@UseGuards(DevAuthGuard)
+@UseGuards(FirebaseAuthGuard)
 export class TasksController {
   constructor(private readonly tasksService: TasksService) {}
 

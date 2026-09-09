@@ -18,13 +18,12 @@ import {
 } from '@nestjs/swagger';
 import { CommunicationPlansService } from './communication-plans.service';
 import { CreateCommunicationPlanDto, UpdateCommunicationPlanDto, CreateContactDto } from './dto/bcdr.dto';
-import { CurrentUser, UserContext } from '@gigachad-grc/shared';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { CurrentUser, FirebaseAuthGuard, UserContext } from '@gigachad-grc/shared';
 
 @ApiTags('bcdr/communication')
 @ApiBearerAuth()
 @Controller('api/bcdr/communication')
-@UseGuards(DevAuthGuard)
+@UseGuards(FirebaseAuthGuard)
 export class CommunicationPlansController {
   constructor(private readonly communicationService: CommunicationPlansService) {}
 

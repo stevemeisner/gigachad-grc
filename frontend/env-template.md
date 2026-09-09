@@ -19,19 +19,25 @@ Copy the environment variables below to a `.env.local` file for local developmen
 VITE_API_URL=
 
 # ========================================
-# Authentication (Keycloak)
+# Authentication (Firebase Authentication - Google sign-in only)
 # ========================================
 
-# Keycloak server URL
-# Development: http://localhost:8080
-# Production: https://auth.yourcompany.com
-VITE_KEYCLOAK_URL=http://localhost:8080
+# The Firebase Web API key is a PUBLIC identifier, not a secret: it ships in
+# the browser bundle by design. Access is controlled by the Firebase
+# authorized-domain list and the backend's ALLOWED_EMAIL_DOMAINS allowlist.
+# Firebase console > Project settings > General > "Your apps" > Web app.
+VITE_FIREBASE_API_KEY=
 
-# Keycloak realm name
-VITE_KEYCLOAK_REALM=gigachad-grc
+# Firebase console > Authentication > Settings > Authorized domains.
+# Defaults to <project-id>.firebaseapp.com
+VITE_FIREBASE_AUTH_DOMAIN=yourcompany.firebaseapp.com
 
-# Keycloak client ID for frontend
-VITE_KEYCLOAK_CLIENT_ID=grc-frontend
+# Firebase console > Project settings > General > "Project ID".
+# Must match the backend's FIREBASE_PROJECT_ID.
+VITE_FIREBASE_PROJECT_ID=
+
+# Local development can leave the three values above empty and run the
+# backend with AUTH_MODE=demo, which uses the seeded demo identity instead.
 
 # ========================================
 # Error Tracking (Sentry)
@@ -192,9 +198,9 @@ VITE_ENABLE_TOOLS_MODULE=false
 
 ```env
 VITE_API_URL=https://grc.yourcompany.com
-VITE_KEYCLOAK_URL=https://auth.yourcompany.com
-VITE_KEYCLOAK_REALM=gigachad-grc
-VITE_KEYCLOAK_CLIENT_ID=grc-frontend
+VITE_FIREBASE_API_KEY=AIzaSy...
+VITE_FIREBASE_AUTH_DOMAIN=yourcompany.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=yourcompany-grc
 VITE_ERROR_TRACKING_ENABLED=true
 VITE_SENTRY_DSN=https://your-dsn@sentry.io/project
 VITE_APP_VERSION=1.0.0

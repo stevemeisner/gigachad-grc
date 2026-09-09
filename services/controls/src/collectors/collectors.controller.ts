@@ -13,7 +13,7 @@ import {
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
 import { CollectorsService } from './collectors.service';
 import { CreateCollectorDto, UpdateCollectorDto, TestCollectorDto } from './dto/collector.dto';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { FirebaseAuthGuard } from '@gigachad-grc/shared';
 import { PermissionGuard } from '../auth/permission.guard';
 import { RequirePermission } from '../auth/decorators/require-permission.decorator';
 import { Resource, Action } from '../permissions/dto/permission.dto';
@@ -21,7 +21,7 @@ import { Resource, Action } from '../permissions/dto/permission.dto';
 @ApiTags('evidence-collectors')
 @ApiBearerAuth()
 @Controller('api/controls/:controlId/implementations/:implementationId/collectors')
-@UseGuards(DevAuthGuard, PermissionGuard)
+@UseGuards(FirebaseAuthGuard, PermissionGuard)
 export class CollectorsController {
   constructor(private readonly collectorsService: CollectorsService) {}
 

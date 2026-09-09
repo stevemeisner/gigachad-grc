@@ -1,5 +1,7 @@
 import axios, { AxiosError, AxiosResponse } from 'axios';
-import { secureStorage, STORAGE_KEYS, migrateLegacyStorage } from './secureStorage';
+import { getApps } from 'firebase/app';
+import { getAuth } from 'firebase/auth';
+import { secureStorage, migrateLegacyStorage } from './secureStorage';
 
 // Migrate legacy storage on module load
 migrateLegacyStorage();
@@ -238,32 +240,37 @@ export function unwrapList<T>(payload: unknown): T[] {
   return [];
 }
 
-// Request interceptor to add auth token and user ID
-api.interceptors.request.use((config) => {
+// Request interceptor: attaches a freshly-minted Firebase ID token.
+//
+// The interceptor is async on purpose. `getIdToken()` returns the cached token
+// when it is still valid and transparently refreshes it when it is not, so the
+// only way to be sure we never send an expired credential is to ask the SDK at
+// request time rather than read a copy someone stored an hour ago.
+//
+// No identity headers are sent. The services derive userId/organizationId from
+// the verified token; a client-supplied `x-user-id` is forgeable and only
+// tempts someone into trusting it again.
+api.interceptors.request.use(async (config) => {
   // Skip auth for health checks
   if (config.headers?.['X-Skip-Auth'] === 'true') {
     delete config.headers['X-Skip-Auth'];
     return config;
   }
 
-  // Get token from secure storage (with fallback to legacy localStorage)
-  const token = secureStorage.get(STORAGE_KEYS.TOKEN) || localStorage.getItem('token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
+  // `getAuth()` throws when no Firebase app has been initialised, which is the
+  // case in demo mode and in unit tests. Those requests go out unauthenticated
+  // and the backend decides what to do with them.
+  if (getApps().length > 0) {
+    try {
+      const token = await getAuth().currentUser?.getIdToken();
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+      }
+    } catch (error) {
+      console.error('Failed to obtain Firebase ID token:', error);
+    }
   }
-  
-  // Add user ID for notifications and other user-specific endpoints
-  const userId = secureStorage.get(STORAGE_KEYS.USER_ID) || localStorage.getItem('userId');
-  if (userId) {
-    config.headers['x-user-id'] = userId;
-  }
-  
-  // Add organization ID
-  const orgId = secureStorage.get(STORAGE_KEYS.ORGANIZATION_ID) || localStorage.getItem('organizationId');
-  if (orgId) {
-    config.headers['x-organization-id'] = orgId;
-  }
-  
+
   return config;
 });
 
@@ -544,7 +551,7 @@ export const usersApi = {
     api.post(`/api/users/${userId}/groups/${groupId}`),
   removeFromGroup: (userId: string, groupId: string): Promise<AxiosResponse<void>> => 
     api.post(`/api/users/${userId}/groups/${groupId}/remove`),
-  sync: (data: { keycloakId: string; email: string; firstName?: string; lastName?: string; roles?: string[] }): Promise<AxiosResponse<User>> =>
+  sync: (data: { externalId: string; email: string; firstName?: string; lastName?: string; roles?: string[] }): Promise<AxiosResponse<User>> =>
     api.post('/api/users/sync', data),
 };
 

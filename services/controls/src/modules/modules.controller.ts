@@ -1,7 +1,7 @@
 import { Controller, Get, Put, Body, UseGuards, Request, Logger } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { PrismaService } from '../prisma/prisma.service';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { FirebaseAuthGuard } from '@gigachad-grc/shared';
 import { PermissionGuard } from '../auth/permission.guard';
 import { RequirePermission } from '../auth/decorators/require-permission.decorator';
 import { Resource, Action } from '../permissions/dto/permission.dto';
@@ -13,7 +13,7 @@ interface UpdateModulesDto {
 @ApiTags('modules')
 @ApiBearerAuth()
 @Controller('api/modules')
-@UseGuards(DevAuthGuard, PermissionGuard)
+@UseGuards(FirebaseAuthGuard, PermissionGuard)
 export class ModulesController {
   private readonly logger = new Logger(ModulesController.name);
 

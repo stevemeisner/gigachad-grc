@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeftIcon, TrashIcon, PencilIcon, DocumentArrowDownIcon } from '@heroicons/react/24/outline';
-import { contractsApi } from '../lib/api';
-import { useAuth } from '@/contexts/AuthContext';
+import { api, contractsApi } from '../lib/api';
 import toast from 'react-hot-toast';
 
 interface Contract {
@@ -453,7 +452,6 @@ function ContractView({ contract, onEdit, onDelete }: { contract: Contract; onEd
 export default function ContractDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { user } = useAuth();
   const [contract, setContract] = useState<Contract | null>(null);
   const [loading, setLoading] = useState(true);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -470,9 +468,8 @@ export default function ContractDetail() {
 
   const fetchContract = async () => {
     try {
-      const response = await fetch(`/api/contracts/${id}`);
-      const data = await response.json();
-      setContract(data);
+      const response = await api.get<Contract>(`/api/contracts/${id}`);
+      setContract(response.data);
     } catch (error) {
       console.error('Error fetching contract:', error);
     } finally {
@@ -485,26 +482,16 @@ export default function ContractDetail() {
       const url = id === 'new'
         ? '/api/contracts'
         : `/api/contracts/${id}`;
-      const method = id === 'new' ? 'POST' : 'PATCH';
 
-      const response = await fetch(url, {
-        method,
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-id': user?.id || '',
-          'x-organization-id': user?.organizationId || '',
-        },
-        body: JSON.stringify(formData),
-      });
+      const response = id === 'new'
+        ? await api.post<Contract>(url, formData)
+        : await api.patch<Contract>(url, formData);
 
-      if (response.ok) {
-        const data = await response.json();
-        if (id === 'new') {
-          navigate(`/contracts/${data.id}`);
-        } else {
-          setContract(data);
-          setEditing(false);
-        }
+      if (id === 'new') {
+        navigate(`/contracts/${response.data.id}`);
+      } else {
+        setContract(response.data);
+        setEditing(false);
       }
     } catch (error) {
       console.error('Error saving contract:', error);
@@ -590,7 +577,7 @@ export default function ContractDetail() {
               <button
                 onClick={async () => {
                   try {
-                    await fetch(`/api/contracts/${id}`, { method: 'DELETE', headers: { 'x-user-id': 'system' } });
+                    await contractsApi.delete(id!);
                     toast.success('Contract deleted successfully');
                     navigate('/contracts');
                   } catch (error) {

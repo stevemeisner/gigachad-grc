@@ -78,15 +78,10 @@ export class PermissionGuard implements CanActivate {
   ): Promise<boolean> {
     const { resource, action, resourceIdParam } = permission;
 
-    // In dev mode, first check request.user.permissions (set by DevAuthGuard)
-    const nodeEnv = process.env.NODE_ENV || 'development';
-    if (nodeEnv !== 'production' && request.user?.permissions) {
-      const requiredPerm = `${resource}:${action}`;
-      if (request.user.permissions.includes(requiredPerm)) {
-        this.logger.debug(`Permission granted via DevAuthGuard: ${requiredPerm}`);
-        return true;
-      }
-    }
+    // There is no environment-dependent shortcut here. Authorization is
+    // resolved from the database (group memberships, overrides, and the
+    // users.role fallback) in every environment, so a route that is denied in
+    // production is denied in development too.
 
     // Get resource ID if specified
     let resourceId: string | undefined;

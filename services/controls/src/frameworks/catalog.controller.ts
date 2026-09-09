@@ -9,11 +9,11 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { FirebaseAuthGuard } from '@gigachad-grc/shared';
 import { FrameworkCatalogService } from './catalog.service';
 
 @Controller('api/frameworks/catalog')
-@UseGuards(DevAuthGuard)
+@UseGuards(FirebaseAuthGuard)
 export class FrameworkCatalogController {
   constructor(private readonly catalogService: FrameworkCatalogService) {}
 

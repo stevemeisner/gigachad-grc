@@ -16,8 +16,7 @@ import {
 } from '@nestjs/swagger';
 import { Response } from 'express';
 import { ReportsService, GenerateReportDto } from './reports.service';
-import { CurrentUser, UserContext } from '@gigachad-grc/shared';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { CurrentUser, FirebaseAuthGuard, UserContext } from '@gigachad-grc/shared';
 import { PermissionGuard } from '../auth/permission.guard';
 import { RequirePermission } from '../auth/decorators/require-permission.decorator';
 import { Resource, Action } from '../permissions/dto/permission.dto';
@@ -25,7 +24,7 @@ import { Resource, Action } from '../permissions/dto/permission.dto';
 @ApiTags('reports')
 @ApiBearerAuth()
 @Controller('api/reports')
-@UseGuards(DevAuthGuard, PermissionGuard)
+@UseGuards(FirebaseAuthGuard, PermissionGuard)
 export class ReportsController {
   constructor(private readonly reportsService: ReportsService) {}
 

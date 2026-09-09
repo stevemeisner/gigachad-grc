@@ -14,7 +14,7 @@ import toast from 'react-hot-toast';
 
 interface User {
   id: string;
-  keycloakId?: string;
+  externalId?: string;
   email: string;
   firstName: string;
   lastName: string;
@@ -467,9 +467,17 @@ function PermissionsModal({ user, onClose }: { user: User; onClose: () => void }
                             {perm.resource.replace('_', ' ')}
                           </span>
                           <span className={`text-xs px-2 py-0.5 rounded ${
-                            perm.source === 'group' ? 'bg-blue-500/20 text-blue-400' : 'bg-yellow-500/20 text-yellow-400'
+                            perm.source === 'group'
+                              ? 'bg-blue-500/20 text-blue-400'
+                              : perm.source === 'role'
+                                ? 'bg-purple-500/20 text-purple-400'
+                                : 'bg-yellow-500/20 text-yellow-400'
                           }`}>
-                            {perm.source === 'group' ? `From: ${perm.groupName}` : 'Override'}
+                            {perm.source === 'group'
+                              ? `From: ${perm.groupName}`
+                              : perm.source === 'role'
+                                ? `Role: ${perm.groupName}`
+                                : 'Override'}
                           </span>
                         </div>
                         <div className="flex flex-wrap gap-1">

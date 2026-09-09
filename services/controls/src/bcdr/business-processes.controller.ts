@@ -24,13 +24,12 @@ import {
   AddProcessDependencyDto,
   LinkProcessAssetDto,
 } from './dto/bcdr.dto';
-import { CurrentUser, UserContext } from '@gigachad-grc/shared';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { CurrentUser, FirebaseAuthGuard, UserContext } from '@gigachad-grc/shared';
 
 @ApiTags('bcdr/processes')
 @ApiBearerAuth()
 @Controller('api/bcdr/processes')
-@UseGuards(DevAuthGuard)
+@UseGuards(FirebaseAuthGuard)
 export class BusinessProcessesController {
   constructor(private readonly processesService: BusinessProcessesService) {}
 

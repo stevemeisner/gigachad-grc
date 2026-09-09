@@ -8,13 +8,12 @@ import {
   Param,
   UseGuards,
 } from '@nestjs/common';
-import { OrgId, UserId } from '@gigachad-grc/shared';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { FirebaseAuthGuard, OrgId, UserId } from '@gigachad-grc/shared';
 import { RiskConfigService } from './risk-config.service';
 import { UpdateRiskConfigurationDto, RiskCategoryDto } from './dto/risk-config.dto';
 
 @Controller('api/risk-config')
-@UseGuards(DevAuthGuard)
+@UseGuards(FirebaseAuthGuard)
 export class RiskConfigController {
   constructor(private readonly riskConfigService: RiskConfigService) {}
 

@@ -32,16 +32,16 @@ import {
   CreateFolderDto,
 } from './dto/evidence.dto';
 import {
-  Roles,
   CurrentUser,
+  FirebaseAuthGuard,
+  Roles,
   UserContext,
 } from '@gigachad-grc/shared';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
 
 @ApiTags('evidence')
 @ApiBearerAuth()
 @Controller('api/evidence')
-@UseGuards(DevAuthGuard)
+@UseGuards(FirebaseAuthGuard)
 export class EvidenceController {
   constructor(private readonly evidenceService: EvidenceService) {}
 

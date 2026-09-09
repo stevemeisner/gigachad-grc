@@ -1,7 +1,14 @@
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from 'react';
-import Keycloak from 'keycloak-js';
+import { initializeApp, getApps, type FirebaseApp } from 'firebase/app';
+import {
+  getAuth,
+  onIdTokenChanged,
+  signInWithPopup,
+  signOut,
+  GoogleAuthProvider,
+  type Auth,
+} from 'firebase/auth';
 import { setErrorTrackingUser, addBreadcrumb } from '@/lib/errorTracking';
-import { secureStorage, STORAGE_KEYS } from '@/lib/secureStorage';
 
 interface User {
   id: string;
@@ -16,6 +23,11 @@ interface AuthContextType {
   isLoading: boolean;
   user: User | null;
   token: string | null;
+  /**
+   * Authorization vocabulary for the signed-in user. The Firebase ID token
+   * proves identity only, so this is empty until the server supplies it.
+   */
+  permissions: string[];
   login: () => void;
   logout: () => void;
   devLogin?: () => void;
@@ -25,24 +37,37 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const keycloakConfig = {
-  url: import.meta.env.VITE_KEYCLOAK_URL || 'http://localhost:8080',
-  realm: import.meta.env.VITE_KEYCLOAK_REALM || 'gigachad-grc',
-  clientId: import.meta.env.VITE_KEYCLOAK_CLIENT_ID || 'grc-frontend',
+/**
+ * The Firebase web API key is a public client identifier, not a secret: it
+ * only names the project the SDK talks to. Access is enforced by the token
+ * verification on the API side, never by the key's confidentiality.
+ */
+const firebaseConfig = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
 };
 
-// Suppress Keycloak config log in development
-// // Suppress Keycloak config log in development
-// console.log('Keycloak config:', keycloakConfig);
+/**
+ * Local development bypass. Mirrors the backend's `AUTH_MODE=demo`, which
+ * supplies the identity server-side; the frontend simply stops asking for a
+ * token. Gated on `import.meta.env.DEV` so a production bundle can never
+ * contain a reachable bypass.
+ */
+const DEMO_MODE = import.meta.env.DEV && import.meta.env.VITE_AUTH_MODE === 'demo';
 
-let keycloak: Keycloak | null = null;
-let initPromise: Promise<boolean> | null = null;
+/** sessionStorage key holding the demo bypass session. Demo mode only. */
+const DEMO_SESSION_KEY = 'grc-demo-session';
 
-function getKeycloak(): Keycloak {
-  if (!keycloak) {
-    keycloak = new Keycloak(keycloakConfig);
-  }
-  return keycloak;
+/**
+ * Resolve the Firebase Auth instance, initialising the default app on first
+ * use. Returns null when the project is not configured (demo-only checkouts),
+ * so the provider can degrade instead of throwing at module load.
+ */
+function firebaseAuth(): Auth | null {
+  if (!firebaseConfig.apiKey || !firebaseConfig.projectId) return null;
+  const app: FirebaseApp = getApps()[0] ?? initializeApp(firebaseConfig);
+  return getAuth(app);
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -50,207 +75,139 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
+  const [permissions, setPermissions] = useState<string[]>([]);
 
-  const loadUserProfile = useCallback(async (kc: Keycloak) => {
-    try {
-      const profile = await kc.loadUserProfile();
-      const tokenParsed = kc.tokenParsed as any;
-
-      console.log('Token parsed:', tokenParsed);
-      console.log('Profile:', profile);
-
-      const role = tokenParsed?.roles?.[0] || 
-        tokenParsed?.realm_access?.roles?.find(
-          (r: string) => ['admin', 'compliance_manager', 'auditor', 'viewer'].includes(r)
-        ) || 'viewer';
-
-      const userId = kc.subject || '';
-      const organizationId = tokenParsed?.organization_id || 'default';
-      
-      const newUser = {
-        id: userId,
-        email: profile.email || '',
-        name: `${profile.firstName || ''} ${profile.lastName || ''}`.trim() || profile.email || '',
-        role,
-        organizationId,
-      };
-      setUser(newUser);
-      
-      // Set user for error tracking (Sentry)
-      setErrorTrackingUser({
-        id: userId,
-        email: profile.email || undefined,
-        organizationId,
-      });
-      addBreadcrumb({ category: 'auth', message: 'User logged in' });
-
-      // Store in secure storage for API interceptor
-      secureStorage.set(STORAGE_KEYS.USER_ID, userId);
-      secureStorage.set(STORAGE_KEYS.ORGANIZATION_ID, organizationId);
-      if (kc.token) {
-        secureStorage.set(STORAGE_KEYS.TOKEN, kc.token);
-      }
-
-      setToken(kc.token || null);
-    } catch (error) {
-      console.error('Failed to load user profile:', error);
-      // Still set authenticated even if profile fails
-      setToken(kc.token || null);
-    }
+  // The demo identity mirrors the row seeded by database/dev-bootstrap.sql, so
+  // the UI's role gates agree with what the API will answer under AUTH_MODE=demo.
+  const applyDemoIdentity = useCallback(() => {
+    setUser({
+      id: '8f88a42b-e799-455c-b68a-308d7d2e9aa4',
+      email: 'john.doe@example.com',
+      name: 'John Doe',
+      role: 'admin',
+      organizationId: '8924f0c1-7bb1-4be8-84ee-ad8725c712bf',
+    });
+    setToken(null);
+    setPermissions([]);
+    setIsAuthenticated(true);
+    setIsLoading(false);
   }, []);
 
   useEffect(() => {
-    const initKeycloak = async () => {
-      // Check for dev auth first
-      if (import.meta.env.DEV) {
-        const storedAuth = localStorage.getItem('grc-dev-auth');
-        if (storedAuth) {
-          try {
-            const devUser = JSON.parse(storedAuth) as User;
-            // Suppress dev auth session log
-            // console.log('Restoring dev auth session');
-            setUser(devUser);
-            setToken('dev-token-not-for-production');
-            setIsAuthenticated(true);
-            // Ensure userId and organizationId are set for API calls
-            secureStorage.set(STORAGE_KEYS.USER_ID, devUser.id);
-            secureStorage.set(STORAGE_KEYS.ORGANIZATION_ID, devUser.organizationId);
-            secureStorage.set(STORAGE_KEYS.TOKEN, 'dev-token-not-for-production');
-            setIsLoading(false);
-            return;
-          } catch (e) {
-            localStorage.removeItem('grc-dev-auth');
-          }
-        }
-      }
+    // In demo mode there is no identity provider to restore from, so the
+    // bypass session is kept in sessionStorage. Without this a page refresh
+    // silently signs you out, which the Keycloak-era devLogin did not do.
+    if (DEMO_MODE && sessionStorage.getItem(DEMO_SESSION_KEY) === 'active') {
+      applyDemoIdentity();
+      return;
+    }
 
-      const kc = getKeycloak();
-      
-      // Prevent double initialization
-      if (initPromise) {
-        try {
-          const authenticated = await initPromise;
-          setIsAuthenticated(authenticated);
-          if (authenticated) {
-            await loadUserProfile(kc);
-          }
-        } catch (e) {
-          console.error('Keycloak init promise failed:', e);
-        } finally {
-          setIsLoading(false);
-        }
+    const auth = firebaseAuth();
+    if (!auth) {
+      setIsLoading(false);
+      return;
+    }
+
+    // A single `onIdTokenChanged` subscription covers every transition:
+    // session restore on page load, interactive sign-in, sign-out, and the
+    // silent hourly refresh the SDK performs on its own. There is nothing to
+    // schedule, no expiry to watch and no double-init to guard against.
+    return onIdTokenChanged(auth, async (firebaseUser) => {
+      if (!firebaseUser) {
+        setIsAuthenticated(false);
+        setUser(null);
+        setToken(null);
+        setPermissions([]);
+        setErrorTrackingUser(null);
+        setIsLoading(false);
         return;
       }
 
       try {
-        console.log('Initializing Keycloak...');
-        
-        initPromise = kc.init({
-          onLoad: 'check-sso',
-          checkLoginIframe: false, // Disable iframe check which can cause issues
-          pkceMethod: 'S256',
-          redirectUri: window.location.origin + '/',
+        // Never persisted: the SDK owns the refresh credential, and a stored
+        // copy of the ID token goes stale within the hour.
+        const idToken = await firebaseUser.getIdToken();
+        setToken(idToken);
+
+        // The token carries identity only. Role, organization and permissions
+        // are authoritative in PostgreSQL.
+        // TODO: populate `role`, `organizationId` and `permissions` from
+        // `GET /api/users/me` (usersApi.getMe) once it returns the caller's
+        // database row for a Firebase-verified request.
+        setUser({
+          id: firebaseUser.uid,
+          email: firebaseUser.email || '',
+          name: firebaseUser.displayName || firebaseUser.email || '',
+          role: '',
+          organizationId: '',
         });
+        setPermissions([]);
+        setIsAuthenticated(true);
 
-        const authenticated = await initPromise;
-        console.log('Keycloak initialized, authenticated:', authenticated);
-
-        if (authenticated) {
-          await loadUserProfile(kc);
-        }
-
-        setIsAuthenticated(authenticated);
-
-        // Token refresh
-        kc.onTokenExpired = () => {
-          console.log('Token expired, refreshing...');
-          kc.updateToken(30).then((refreshed) => {
-            if (refreshed) {
-              console.log('Token refreshed');
-              setToken(kc.token || null);
-            }
-          }).catch(() => {
-            console.error('Failed to refresh token');
-            setIsAuthenticated(false);
-            setUser(null);
-            setToken(null);
-          });
-        };
-
-        // Handle auth success callback
-        kc.onAuthSuccess = () => {
-          console.log('Auth success');
-          loadUserProfile(kc);
-          setIsAuthenticated(true);
-        };
-
-        kc.onAuthError = (error) => {
-          console.error('Auth error:', error);
-        };
-
-      } catch (error) {
-        console.error('Keycloak initialization failed:', error);
-        initPromise = null;
+        setErrorTrackingUser({
+          id: firebaseUser.uid,
+          email: firebaseUser.email || undefined,
+        });
+        addBreadcrumb({ category: 'auth', message: 'User logged in' });
       } finally {
         setIsLoading(false);
       }
-    };
-
-    initKeycloak();
-  }, [loadUserProfile]);
+    });
+  }, []);
 
   const login = useCallback(() => {
-    const kc = getKeycloak();
-    console.log('Logging in...');
-    // Redirect back to root so Keycloak can process the callback
-    kc.login({
-      redirectUri: window.location.origin + '/',
+    const auth = firebaseAuth();
+    if (!auth) {
+      console.error('Firebase auth is not configured (VITE_FIREBASE_* missing)');
+      return;
+    }
+
+    const provider = new GoogleAuthProvider();
+    const allowedDomain = import.meta.env.VITE_ALLOWED_EMAIL_DOMAIN;
+    if (allowedDomain) {
+      // `hd` is a UI hint only: it pre-filters Google's account chooser. It is
+      // not present in the resulting Firebase ID token and a caller can
+      // trivially bypass it, so the real restriction is enforced server-side
+      // (email suffix check plus a required database row).
+      provider.setCustomParameters({ hd: allowedDomain });
+    }
+
+    // Popup, not redirect: Firebase's redirect flow needs a cross-origin
+    // iframe to `<project>.firebaseapp.com`, which browsers that block
+    // third-party storage break. Every documented workaround requires either
+    // Firebase Hosting or reverse-proxying `/__/auth/` under our own origin.
+    signInWithPopup(auth, provider).catch((error) => {
+      console.error('Google sign-in failed:', error);
     });
   }, []);
 
   const logout = useCallback(() => {
-    const kc = getKeycloak();
-    // Clear dev login state and user info
-    localStorage.removeItem('grc-dev-auth');
-    localStorage.removeItem('userId');
-    localStorage.removeItem('organizationId');
-    localStorage.removeItem('token');
+    // Clear local state immediately; the token-change callback will also fire.
+    sessionStorage.removeItem(DEMO_SESSION_KEY);
     setIsAuthenticated(false);
     setUser(null);
     setToken(null);
-    
-    // Clear user from error tracking
+    setPermissions([]);
     setErrorTrackingUser(null);
     addBreadcrumb({ category: 'auth', message: 'User logged out' });
-    
-    // Only call keycloak logout if we were authenticated via keycloak
-    if (kc.authenticated) {
-      kc.logout({
-        redirectUri: window.location.origin,
+
+    const auth = firebaseAuth();
+    if (auth) {
+      signOut(auth).catch((error) => {
+        console.error('Sign-out failed:', error);
       });
     }
   }, []);
 
-  // Dev login bypass - only available in development
-  const devLogin = useCallback(() => {
-    if (import.meta.env.DEV) {
-      console.log('Dev login activated');
-      const devUser: User = {
-        id: '8f88a42b-e799-455c-b68a-308d7d2e9aa4', // John Doe - seeded user
-        email: 'john.doe@example.com',
-        name: 'John Doe',
-        role: 'admin',
-        organizationId: '8924f0c1-7bb1-4be8-84ee-ad8725c712bf',
-      };
-      setUser(devUser);
-      setToken('dev-token-not-for-production');
-      setIsAuthenticated(true);
-      // Persist dev auth state and user info for API calls
-      localStorage.setItem('grc-dev-auth', JSON.stringify(devUser));
-      localStorage.setItem('userId', devUser.id);
-      localStorage.setItem('organizationId', devUser.organizationId);
-    }
-  }, []);
+  // Demo bypass: marks the context authenticated with NO token. The backend
+  // running with AUTH_MODE=demo resolves the identity itself; the values below
+  // only mirror that identity (database/dev-bootstrap.sql) so the UI's own
+  // role gates behave the way the API will.
+  const demoLogin = useCallback(() => {
+    if (!DEMO_MODE) return;
+    sessionStorage.setItem(DEMO_SESSION_KEY, 'active');
+    applyDemoIdentity();
+  }, [applyDemoIdentity]);
 
   const hasRole = (role: string): boolean => {
     if (!user) return false;
@@ -259,26 +216,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const hasPermission = (permission: string): boolean => {
-    if (!user) return false;
-    if (user.role === 'admin') return true;
-    
-    const rolePermissions: Record<string, string[]> = {
-      compliance_manager: [
-        'controls:view', 'controls:create', 'controls:update',
-        'evidence:view', 'evidence:upload', 'evidence:approve',
-        'frameworks:view', 'frameworks:manage',
-        'policies:view', 'policies:create', 'policies:update', 'policies:approve',
-        'integrations:view', 'integrations:manage',
-      ],
-      auditor: [
-        'controls:view', 'evidence:view', 'frameworks:view', 'policies:view',
-      ],
-      viewer: [
-        'controls:view', 'evidence:view', 'frameworks:view', 'policies:view',
-      ],
-    };
-
-    return rolePermissions[user.role]?.includes(permission) || false;
+    // Single dev-only bypass, matching the backend's AUTH_MODE=demo: the demo
+    // stack has no /api/users/me row to read permissions from.
+    if (DEMO_MODE && isAuthenticated) return true;
+    // Otherwise permissions are granted by the server, never inferred from the
+    // token or from a client-side role table. Absent permissions allow nothing.
+    return permissions.includes(permission);
   };
 
   return (
@@ -288,9 +231,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isLoading,
         user,
         token,
+        permissions,
         login,
         logout,
-        devLogin: import.meta.env.DEV ? devLogin : undefined,
+        devLogin: DEMO_MODE ? demoLogin : undefined,
         hasRole,
         hasPermission,
       }}
@@ -307,4 +251,3 @@ export function useAuth() {
   }
   return context;
 }
-

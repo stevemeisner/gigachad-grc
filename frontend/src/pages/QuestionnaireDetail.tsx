@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeftIcon, DocumentArrowUpIcon, PencilIcon, TrashIcon, CheckIcon, BookOpenIcon, ChevronRightIcon } from '@heroicons/react/24/outline';
-import { questionnairesApi } from '../lib/api';
+import { api, questionnairesApi } from '../lib/api';
 import { Button } from '@/components/Button';
 import { SkeletonDetailHeader, SkeletonDetailSection } from '@/components/Skeleton';
 import { KnowledgeBaseSearchPanel } from '@/components/trust/KnowledgeBaseSearchPanel';
@@ -99,16 +99,9 @@ export default function QuestionnaireDetail() {
 
   const updateAnswer = async (questionId: string, answer: string) => {
     try {
-      await fetch(`/api/questionnaires/questions/${questionId}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-id': 'system',
-        },
-        body: JSON.stringify({
-          answerText: answer,
-          status: 'answered',
-        }),
+      await api.patch(`/api/questionnaires/questions/${questionId}`, {
+        answerText: answer,
+        status: 'answered',
       });
       fetchQuestionnaire();
     } catch (error) {
@@ -177,41 +170,27 @@ export default function QuestionnaireDetail() {
         .filter(line => line.length > 0);
 
       // Create the questionnaire
-      const response = await fetch('/api/questionnaires', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-id': 'system',
-        },
-        body: JSON.stringify({
-          organizationId: 'default-org',
-          title: formData.title,
-          requesterName: formData.requesterName,
-          requesterEmail: formData.requesterEmail,
-          company: formData.company || undefined,
-          description: formData.description || undefined,
-          priority: formData.priority,
-          dueDate: formData.dueDate ? new Date(formData.dueDate).toISOString() : undefined,
-          status: 'pending',
-        }),
+      const response = await api.post('/api/questionnaires', {
+        organizationId: 'default-org',
+        title: formData.title,
+        requesterName: formData.requesterName,
+        requesterEmail: formData.requesterEmail,
+        company: formData.company || undefined,
+        description: formData.description || undefined,
+        priority: formData.priority,
+        dueDate: formData.dueDate ? new Date(formData.dueDate).toISOString() : undefined,
+        status: 'pending',
       });
 
-      const newQuestionnaire = await response.json();
+      const newQuestionnaire = response.data;
 
       // Create questions
       for (let i = 0; i < questionLines.length; i++) {
-        await fetch('/api/questionnaires/questions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-user-id': 'system',
-          },
-          body: JSON.stringify({
-            questionnaireId: newQuestionnaire.id,
-            questionText: questionLines[i],
-            questionNumber: `${i + 1}`,
-            status: 'pending',
-          }),
+        await api.post('/api/questionnaires/questions', {
+          questionnaireId: newQuestionnaire.id,
+          questionText: questionLines[i],
+          questionNumber: `${i + 1}`,
+          status: 'pending',
         });
       }
 

@@ -7,13 +7,14 @@ import { VendorAIModule } from './ai/vendor-ai.module';
 import { TprmConfigModule } from './config/tprm-config.module';
 import { PrismaService } from './common/prisma.service';
 import { AuditService } from './common/audit.service';
-import { StorageModule } from '@gigachad-grc/shared';
+import { StorageModule, HealthModule } from '@gigachad-grc/shared';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
     }),
+    HealthModule,
     StorageModule.forRoot(),
     VendorsModule,
     AssessmentsModule,

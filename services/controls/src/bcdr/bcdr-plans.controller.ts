@@ -23,8 +23,7 @@ import {
 } from '@nestjs/swagger';
 import { BCDRPlansService } from './bcdr-plans.service';
 import { CreateBCDRPlanDto, UpdateBCDRPlanDto, BCDRPlanFilterDto } from './dto/bcdr.dto';
-import { CurrentUser, UserContext } from '@gigachad-grc/shared';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { CurrentUser, FirebaseAuthGuard, UserContext } from '@gigachad-grc/shared';
 import { PermissionGuard } from '../auth/permission.guard';
 import { RequirePermission } from '../auth/decorators/require-permission.decorator';
 import { Resource, Action } from '../permissions/dto/permission.dto';
@@ -32,7 +31,7 @@ import { Resource, Action } from '../permissions/dto/permission.dto';
 @ApiTags('bcdr/plans')
 @ApiBearerAuth()
 @Controller('api/bcdr/plans')
-@UseGuards(DevAuthGuard, PermissionGuard)
+@UseGuards(FirebaseAuthGuard, PermissionGuard)
 export class BCDRPlansController {
   constructor(private readonly plansService: BCDRPlansService) {}
 

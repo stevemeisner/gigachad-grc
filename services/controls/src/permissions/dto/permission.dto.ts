@@ -169,7 +169,7 @@ export class PermissionGroupResponseDto {
 
 export class GroupMemberResponseDto {
   id: string;
-  keycloakId: string;
+  externalId: string;
   email: string;
   displayName: string;
   joinedAt: Date;
@@ -179,7 +179,9 @@ export class EffectivePermissionDto {
   resource: Resource;
   actions: Action[];
   scope: PermissionScopeDto;
-  source: 'group' | 'override';
+  /** 'role' = derived from users.role because the user has no groups or overrides. */
+  source: 'group' | 'override' | 'role';
+  /** For 'role', the name of the default template the role mapped to. */
   groupName?: string;
 }
 
@@ -203,6 +205,13 @@ export class PermissionCheckResultDto {
 // Default Permission Templates
 // ===========================
 
+/** Shape of a built-in permission group template. */
+export interface PermissionGroupTemplate {
+  name: string;
+  description: string;
+  permissions: PermissionDto[];
+}
+
 export const DEFAULT_PERMISSION_GROUPS = {
   administrator: {
     name: 'Administrator',
@@ -218,6 +227,10 @@ export const DEFAULT_PERMISSION_GROUPS = {
       { resource: Resource.PERMISSIONS, actions: Object.values(Action), scope: { ownership: OwnershipScope.ALL } },
       { resource: Resource.SETTINGS, actions: Object.values(Action), scope: { ownership: OwnershipScope.ALL } },
       { resource: Resource.DASHBOARD, actions: [Action.READ], scope: { ownership: OwnershipScope.ALL } },
+      // Workspaces are org-structure administration: create, rename, delete and
+      // assign members. Without this an administrator 403s on every route in
+      // workspace.controller.ts.
+      { resource: Resource.WORKSPACES, actions: Object.values(Action), scope: { ownership: OwnershipScope.ALL } },
       { resource: Resource.RISK, actions: Object.values(Action), scope: { ownership: OwnershipScope.ALL } },
       { resource: Resource.BCDR, actions: Object.values(Action), scope: { ownership: OwnershipScope.ALL } },
       { resource: Resource.REPORTS, actions: Object.values(Action), scope: { ownership: OwnershipScope.ALL } },
@@ -235,6 +248,9 @@ export const DEFAULT_PERMISSION_GROUPS = {
       { resource: Resource.INTEGRATIONS, actions: [Action.READ], scope: { ownership: OwnershipScope.ALL } },
       { resource: Resource.AUDIT_LOGS, actions: [Action.READ], scope: { ownership: OwnershipScope.ALL } },
       { resource: Resource.DASHBOARD, actions: [Action.READ], scope: { ownership: OwnershipScope.ALL } },
+      // Compliance managers carve the org into workspaces and staff them, but
+      // deleting a workspace (and everything scoped to it) stays with admins.
+      { resource: Resource.WORKSPACES, actions: [Action.READ, Action.CREATE, Action.UPDATE, Action.ASSIGN], scope: { ownership: OwnershipScope.ALL } },
       { resource: Resource.RISK, actions: [Action.READ, Action.CREATE, Action.UPDATE], scope: { ownership: OwnershipScope.ALL } },
       { resource: Resource.BCDR, actions: [Action.READ, Action.CREATE, Action.UPDATE], scope: { ownership: OwnershipScope.ALL } },
       { resource: Resource.REPORTS, actions: [Action.READ, Action.EXPORT], scope: { ownership: OwnershipScope.ALL } },
@@ -251,6 +267,9 @@ export const DEFAULT_PERMISSION_GROUPS = {
       { resource: Resource.FRAMEWORKS, actions: [Action.READ], scope: { ownership: OwnershipScope.ALL } },
       { resource: Resource.AUDIT_LOGS, actions: [Action.READ, Action.EXPORT], scope: { ownership: OwnershipScope.ALL } },
       { resource: Resource.DASHBOARD, actions: [Action.READ], scope: { ownership: OwnershipScope.ALL } },
+      // Read-only: auditors must be able to list workspaces and open the
+      // org-wide dashboard to scope their review. No mutation.
+      { resource: Resource.WORKSPACES, actions: [Action.READ], scope: { ownership: OwnershipScope.ALL } },
       { resource: Resource.RISK, actions: [Action.READ], scope: { ownership: OwnershipScope.ALL } },
       { resource: Resource.BCDR, actions: [Action.READ], scope: { ownership: OwnershipScope.ALL } },
       { resource: Resource.REPORTS, actions: [Action.READ, Action.EXPORT], scope: { ownership: OwnershipScope.ALL } },
@@ -265,6 +284,8 @@ export const DEFAULT_PERMISSION_GROUPS = {
       { resource: Resource.POLICIES, actions: [Action.READ], scope: { ownership: OwnershipScope.ALL } },
       { resource: Resource.FRAMEWORKS, actions: [Action.READ], scope: { ownership: OwnershipScope.ALL } },
       { resource: Resource.DASHBOARD, actions: [Action.READ], scope: { ownership: OwnershipScope.ALL } },
+      // Read-only: needed to see which workspace an assigned control lives in.
+      { resource: Resource.WORKSPACES, actions: [Action.READ], scope: { ownership: OwnershipScope.ALL } },
     ],
   },
   viewer: {
@@ -276,9 +297,12 @@ export const DEFAULT_PERMISSION_GROUPS = {
       { resource: Resource.POLICIES, actions: [Action.READ], scope: { ownership: OwnershipScope.ALL } },
       { resource: Resource.FRAMEWORKS, actions: [Action.READ], scope: { ownership: OwnershipScope.ALL } },
       { resource: Resource.DASHBOARD, actions: [Action.READ], scope: { ownership: OwnershipScope.ALL } },
+      // Read-only: workspace names are navigation metadata, same tier as the
+      // dashboard read this group already has.
+      { resource: Resource.WORKSPACES, actions: [Action.READ], scope: { ownership: OwnershipScope.ALL } },
     ],
   },
-};
+} satisfies Record<string, PermissionGroupTemplate>;
 
 
 

@@ -137,7 +137,7 @@ fi
 
 # Check JWT secret
 if [ -z "${JWT_SECRET:-}" ]; then
-    warn "JWT_SECRET is not set (using Keycloak is recommended)" \
+    warn "JWT_SECRET is not set" \
          "Generate with: openssl rand -base64 64"
 elif [ ${#JWT_SECRET} -lt 32 ]; then
     warn "JWT_SECRET is short (${#JWT_SECRET} chars)" \
@@ -192,38 +192,44 @@ fi
 
 section "Authentication"
 
-# Check Keycloak configuration
-if [ -n "${KEYCLOAK_URL:-}" ]; then
-    pass "KEYCLOAK_URL is configured: ${KEYCLOAK_URL}"
-    
-    if [ -n "${KEYCLOAK_REALM:-}" ]; then
-        pass "KEYCLOAK_REALM is configured: ${KEYCLOAK_REALM}"
-    else
-        warn "KEYCLOAK_REALM is not set" \
-             "Set the realm name for your Keycloak configuration"
-    fi
-    
-    if [ -n "${KEYCLOAK_CLIENT_ID:-}" ]; then
-        pass "KEYCLOAK_CLIENT_ID is configured"
-    else
-        warn "KEYCLOAK_CLIENT_ID is not set"
-    fi
+# Check Firebase Authentication configuration
+if [ -n "${FIREBASE_PROJECT_ID:-}" ]; then
+    pass "FIREBASE_PROJECT_ID is configured: ${FIREBASE_PROJECT_ID}"
 else
     if [ "${NODE_ENV:-development}" = "production" ]; then
-        fail "KEYCLOAK_URL is not configured for production" \
-             "Configure Keycloak for SSO authentication"
+        fail "FIREBASE_PROJECT_ID is not configured for production" \
+             "Set it to the Firebase project whose ID tokens the API accepts"
     else
-        warn "KEYCLOAK_URL is not configured" \
-             "Using development auth - not suitable for production"
+        warn "FIREBASE_PROJECT_ID is not configured" \
+             "Using the demo auth bypass - not suitable for production"
     fi
 fi
 
-# Check for dev auth guard usage
-if [ "${USE_DEV_AUTH:-false}" = "true" ] && [ "${NODE_ENV:-development}" = "production" ]; then
-    fail "USE_DEV_AUTH is enabled in production!" \
-         "Disable dev auth: USE_DEV_AUTH=false"
+# A Firebase ID token carries no hosted-domain claim, so the allowlist is the
+# only thing stopping any Google account from signing in.
+if [ -n "${ALLOWED_EMAIL_DOMAINS:-}" ]; then
+    pass "ALLOWED_EMAIL_DOMAINS is configured: ${ALLOWED_EMAIL_DOMAINS}"
+elif [ "${NODE_ENV:-development}" = "production" ]; then
+    fail "ALLOWED_EMAIL_DOMAINS is not set" \
+         "Without it any Google account can obtain a valid ID token"
 else
-    pass "Dev auth guard is not enabled in production"
+    warn "ALLOWED_EMAIL_DOMAINS is not set"
+fi
+
+# Auto-provisioning creates a user row on first sign-in; it needs a target org.
+if [ "${AUTH_AUTO_PROVISION:-false}" = "true" ] && [ -z "${AUTH_DEFAULT_ORG_ID:-}" ]; then
+    fail "AUTH_AUTO_PROVISION is enabled but AUTH_DEFAULT_ORG_ID is not set" \
+         "Obtain one with: SELECT id, name FROM organizations;"
+else
+    pass "Auto-provisioning configuration is consistent"
+fi
+
+# The demo bypass skips token verification entirely.
+if [ "${AUTH_MODE:-}" = "demo" ] && [ "${NODE_ENV:-development}" = "production" ]; then
+    fail "AUTH_MODE=demo is set in production!" \
+         "Unset AUTH_MODE so the Firebase auth guard verifies real ID tokens"
+else
+    pass "The demo auth bypass is not enabled in production"
 fi
 
 ################################################################################

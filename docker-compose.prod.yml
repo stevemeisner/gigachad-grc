@@ -116,94 +116,6 @@ services:
     shm_size: 256mb
 
   # ===========================================
-  # Authentication - Keycloak (Official Keycloak Image)
-  # ===========================================
-  keycloak:
-    image: quay.io/keycloak/keycloak:25.0
-    container_name: grc-keycloak
-    command: start --optimized --import-realm
-    environment:
-      # Database
-      KC_DB: postgres
-      KC_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
-      KC_DB_USERNAME: ${POSTGRES_USER}
-      KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
-      KC_DB_POOL_INITIAL_SIZE: ${KC_DB_POOL_INITIAL_SIZE:-5}
-      KC_DB_POOL_MIN_SIZE: ${KC_DB_POOL_MIN_SIZE:-5}
-      KC_DB_POOL_MAX_SIZE: ${KC_DB_POOL_MAX_SIZE:-20}
-
-      # Hostname
-      KC_HOSTNAME: ${KEYCLOAK_HOSTNAME}
-      KC_HOSTNAME_STRICT: "true"
-      KC_HOSTNAME_STRICT_HTTPS: "true"
-      KC_PROXY: edge
-
-      # HTTP/HTTPS
-      KC_HTTP_ENABLED: "true"
-      KC_HTTPS_CERTIFICATE_FILE: /opt/keycloak/conf/server.crt.pem
-      KC_HTTPS_CERTIFICATE_KEY_FILE: /opt/keycloak/conf/server.key.pem
-
-      # Admin
-      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN}
-      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
-
-      # Performance
-      KC_CACHE: ispn
-      KC_CACHE_STACK: kubernetes
-
-      # Logging
-      KC_LOG_LEVEL: ${KC_LOG_LEVEL:-info}
-      KC_LOG_CONSOLE_OUTPUT: json
-
-      # Features
-      KC_HEALTH_ENABLED: "true"
-      KC_METRICS_ENABLED: "true"
-      KC_HTTP_RELATIVE_PATH: /auth
-    volumes:
-      - ./auth/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
-      - keycloak_data:/opt/keycloak/data
-      - keycloak_certs:/opt/keycloak/conf:ro
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks:
-      - grc-network
-      - grc-dmz
-    labels:
-      - "traefik.enable=true"
-      - "traefik.docker.network=grc-dmz"
-      - "traefik.http.routers.keycloak.rule=Host(`${KEYCLOAK_HOSTNAME}`)"
-      - "traefik.http.routers.keycloak.entrypoints=websecure"
-      - "traefik.http.routers.keycloak.tls.certresolver=letsencrypt"
-      - "traefik.http.services.keycloak.loadbalancer.server.port=8080"
-      - "traefik.http.middlewares.keycloak-headers.headers.customrequestheaders.X-Forwarded-Proto=https"
-      - "traefik.http.routers.keycloak.middlewares=keycloak-headers"
-    restart: always
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-    healthcheck:
-      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080 && echo -e 'GET /auth/health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && cat <&3 | grep -q '200 OK'"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 90s
-    deploy:
-      resources:
-        limits:
-          cpus: '2.0'
-          memory: 2G
-        reservations:
-          cpus: '0.5'
-          memory: 512M
-
-  # ===========================================
   # Object Storage - MinIO (Official MinIO Image)
   # ===========================================
   minio:
@@ -282,8 +194,13 @@ services:
       MINIO_USE_SSL: false
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
-      KEYCLOAK_URL: http://keycloak:8080/auth
-      KEYCLOAK_REALM: ${KEYCLOAK_REALM}
+      # Firebase Authentication (Google provider only). The ID token proves
+      # IDENTITY ONLY - role, permissions and organization are read from
+      # PostgreSQL on every request, never from token claims.
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID}
+      ALLOWED_EMAIL_DOMAINS: ${ALLOWED_EMAIL_DOMAINS}
+      AUTH_AUTO_PROVISION: ${AUTH_AUTO_PROVISION:-false}
+      AUTH_DEFAULT_ORG_ID: ${AUTH_DEFAULT_ORG_ID}
       JWT_SECRET: ${JWT_SECRET}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
@@ -292,22 +209,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      keycloak:
-        condition: service_healthy
       minio:
         condition: service_healthy
     networks:
       - grc-network
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.controls.rule=Host(`${APP_DOMAIN}`) && PathPrefix(`/api/controls`)"
-      - "traefik.http.routers.controls-evidence.rule=Host(`${APP_DOMAIN}`) && PathPrefix(`/api/evidence`)"
-      - "traefik.http.routers.controls.entrypoints=websecure"
-      - "traefik.http.routers.controls.tls.certresolver=letsencrypt"
-      - "traefik.http.services.controls.loadbalancer.server.port=3001"
-      - "traefik.http.middlewares.controls-ratelimit.ratelimit.average=100"
-      - "traefik.http.middlewares.controls-ratelimit.ratelimit.burst=50"
-      - "traefik.http.routers.controls.middlewares=controls-ratelimit"
     restart: always
     security_opt:
       - no-new-privileges:true
@@ -357,8 +262,13 @@ services:
       MINIO_USE_SSL: false
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
-      KEYCLOAK_URL: http://keycloak:8080/auth
-      KEYCLOAK_REALM: ${KEYCLOAK_REALM}
+      # Firebase Authentication (Google provider only). The ID token proves
+      # IDENTITY ONLY - role, permissions and organization are read from
+      # PostgreSQL on every request, never from token claims.
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID}
+      ALLOWED_EMAIL_DOMAINS: ${ALLOWED_EMAIL_DOMAINS}
+      AUTH_AUTO_PROVISION: ${AUTH_AUTO_PROVISION:-false}
+      AUTH_DEFAULT_ORG_ID: ${AUTH_DEFAULT_ORG_ID}
       JWT_SECRET: ${JWT_SECRET}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
@@ -367,22 +277,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      keycloak:
-        condition: service_healthy
       minio:
         condition: service_healthy
     networks:
       - grc-network
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.frameworks.rule=Host(`${APP_DOMAIN}`) && PathPrefix(`/api/frameworks`)"
-      - "traefik.http.routers.frameworks-risks.rule=Host(`${APP_DOMAIN}`) && PathPrefix(`/api/risks`)"
-      - "traefik.http.routers.frameworks.entrypoints=websecure"
-      - "traefik.http.routers.frameworks.tls.certresolver=letsencrypt"
-      - "traefik.http.services.frameworks.loadbalancer.server.port=3002"
-      - "traefik.http.middlewares.frameworks-ratelimit.ratelimit.average=100"
-      - "traefik.http.middlewares.frameworks-ratelimit.ratelimit.burst=50"
-      - "traefik.http.routers.frameworks.middlewares=frameworks-ratelimit"
     restart: always
     security_opt:
       - no-new-privileges:true
@@ -432,8 +330,13 @@ services:
       MINIO_USE_SSL: false
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
-      KEYCLOAK_URL: http://keycloak:8080/auth
-      KEYCLOAK_REALM: ${KEYCLOAK_REALM}
+      # Firebase Authentication (Google provider only). The ID token proves
+      # IDENTITY ONLY - role, permissions and organization are read from
+      # PostgreSQL on every request, never from token claims.
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID}
+      ALLOWED_EMAIL_DOMAINS: ${ALLOWED_EMAIL_DOMAINS}
+      AUTH_AUTO_PROVISION: ${AUTH_AUTO_PROVISION:-false}
+      AUTH_DEFAULT_ORG_ID: ${AUTH_DEFAULT_ORG_ID}
       JWT_SECRET: ${JWT_SECRET}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
@@ -442,21 +345,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      keycloak:
-        condition: service_healthy
       minio:
         condition: service_healthy
     networks:
       - grc-network
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.policies.rule=Host(`${APP_DOMAIN}`) && PathPrefix(`/api/policies`)"
-      - "traefik.http.routers.policies.entrypoints=websecure"
-      - "traefik.http.routers.policies.tls.certresolver=letsencrypt"
-      - "traefik.http.services.policies.loadbalancer.server.port=3004"
-      - "traefik.http.middlewares.policies-ratelimit.ratelimit.average=100"
-      - "traefik.http.middlewares.policies-ratelimit.ratelimit.burst=50"
-      - "traefik.http.routers.policies.middlewares=policies-ratelimit"
     restart: always
     security_opt:
       - no-new-privileges:true
@@ -506,8 +398,13 @@ services:
       MINIO_USE_SSL: false
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
-      KEYCLOAK_URL: http://keycloak:8080/auth
-      KEYCLOAK_REALM: ${KEYCLOAK_REALM}
+      # Firebase Authentication (Google provider only). The ID token proves
+      # IDENTITY ONLY - role, permissions and organization are read from
+      # PostgreSQL on every request, never from token claims.
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID}
+      ALLOWED_EMAIL_DOMAINS: ${ALLOWED_EMAIL_DOMAINS}
+      AUTH_AUTO_PROVISION: ${AUTH_AUTO_PROVISION:-false}
+      AUTH_DEFAULT_ORG_ID: ${AUTH_DEFAULT_ORG_ID}
       JWT_SECRET: ${JWT_SECRET}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
@@ -516,23 +413,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      keycloak:
-        condition: service_healthy
       minio:
         condition: service_healthy
     networks:
       - grc-network
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.tprm-vendors.rule=Host(`${APP_DOMAIN}`) && PathPrefix(`/api/vendors`)"
-      - "traefik.http.routers.tprm-assessments.rule=Host(`${APP_DOMAIN}`) && PathPrefix(`/api/assessments`)"
-      - "traefik.http.routers.tprm-contracts.rule=Host(`${APP_DOMAIN}`) && PathPrefix(`/api/contracts`)"
-      - "traefik.http.routers.tprm-vendors.entrypoints=websecure"
-      - "traefik.http.routers.tprm-vendors.tls.certresolver=letsencrypt"
-      - "traefik.http.services.tprm.loadbalancer.server.port=3005"
-      - "traefik.http.middlewares.tprm-ratelimit.ratelimit.average=100"
-      - "traefik.http.middlewares.tprm-ratelimit.ratelimit.burst=50"
-      - "traefik.http.routers.tprm-vendors.middlewares=tprm-ratelimit"
     restart: always
     security_opt:
       - no-new-privileges:true
@@ -582,8 +466,13 @@ services:
       MINIO_USE_SSL: false
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
-      KEYCLOAK_URL: http://keycloak:8080/auth
-      KEYCLOAK_REALM: ${KEYCLOAK_REALM}
+      # Firebase Authentication (Google provider only). The ID token proves
+      # IDENTITY ONLY - role, permissions and organization are read from
+      # PostgreSQL on every request, never from token claims.
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID}
+      ALLOWED_EMAIL_DOMAINS: ${ALLOWED_EMAIL_DOMAINS}
+      AUTH_AUTO_PROVISION: ${AUTH_AUTO_PROVISION:-false}
+      AUTH_DEFAULT_ORG_ID: ${AUTH_DEFAULT_ORG_ID}
       JWT_SECRET: ${JWT_SECRET}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
@@ -592,23 +481,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      keycloak:
-        condition: service_healthy
       minio:
         condition: service_healthy
     networks:
       - grc-network
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.trust-questionnaires.rule=Host(`${APP_DOMAIN}`) && PathPrefix(`/api/questionnaires`)"
-      - "traefik.http.routers.trust-knowledge-base.rule=Host(`${APP_DOMAIN}`) && PathPrefix(`/api/knowledge-base`)"
-      - "traefik.http.routers.trust-center.rule=Host(`${APP_DOMAIN}`) && PathPrefix(`/api/trust-center`)"
-      - "traefik.http.routers.trust-questionnaires.entrypoints=websecure"
-      - "traefik.http.routers.trust-questionnaires.tls.certresolver=letsencrypt"
-      - "traefik.http.services.trust.loadbalancer.server.port=3006"
-      - "traefik.http.middlewares.trust-ratelimit.ratelimit.average=100"
-      - "traefik.http.middlewares.trust-ratelimit.ratelimit.burst=50"
-      - "traefik.http.routers.trust-questionnaires.middlewares=trust-ratelimit"
     restart: always
     security_opt:
       - no-new-privileges:true
@@ -658,8 +534,13 @@ services:
       MINIO_USE_SSL: false
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
-      KEYCLOAK_URL: http://keycloak:8080/auth
-      KEYCLOAK_REALM: ${KEYCLOAK_REALM}
+      # Firebase Authentication (Google provider only). The ID token proves
+      # IDENTITY ONLY - role, permissions and organization are read from
+      # PostgreSQL on every request, never from token claims.
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID}
+      ALLOWED_EMAIL_DOMAINS: ${ALLOWED_EMAIL_DOMAINS}
+      AUTH_AUTO_PROVISION: ${AUTH_AUTO_PROVISION:-false}
+      AUTH_DEFAULT_ORG_ID: ${AUTH_DEFAULT_ORG_ID}
       JWT_SECRET: ${JWT_SECRET}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
@@ -668,24 +549,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      keycloak:
-        condition: service_healthy
       minio:
         condition: service_healthy
     networks:
       - grc-network
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.audit-audits.rule=Host(`${APP_DOMAIN}`) && PathPrefix(`/api/audits`)"
-      - "traefik.http.routers.audit-requests.rule=Host(`${APP_DOMAIN}`) && PathPrefix(`/api/audit-requests`)"
-      - "traefik.http.routers.audit-findings.rule=Host(`${APP_DOMAIN}`) && PathPrefix(`/api/audit-findings`)"
-      - "traefik.http.routers.audit-portal.rule=Host(`${APP_DOMAIN}`) && PathPrefix(`/api/audit-portal`)"
-      - "traefik.http.routers.audit-audits.entrypoints=websecure"
-      - "traefik.http.routers.audit-audits.tls.certresolver=letsencrypt"
-      - "traefik.http.services.audit.loadbalancer.server.port=3007"
-      - "traefik.http.middlewares.audit-ratelimit.ratelimit.average=100"
-      - "traefik.http.middlewares.audit-ratelimit.ratelimit.burst=50"
-      - "traefik.http.routers.audit-audits.middlewares=audit-ratelimit"
     restart: always
     security_opt:
       - no-new-privileges:true
@@ -714,6 +581,134 @@ services:
         reservations:
           cpus: '0.25'
           memory: 256M
+
+  # ===========================================
+  # Frontend - React SPA (built by Vite, served by nginx)
+  # ===========================================
+  # No published ports and no Traefik labels: the gateway is the only way in.
+  # The VITE_* values are BUILD ARGS, not runtime env - Vite inlines them into
+  # the bundle, so changing one requires a rebuild of this image.
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        VITE_FIREBASE_API_KEY: ${VITE_FIREBASE_API_KEY}
+        VITE_FIREBASE_AUTH_DOMAIN: ${VITE_FIREBASE_AUTH_DOMAIN}
+        VITE_FIREBASE_PROJECT_ID: ${VITE_FIREBASE_PROJECT_ID}
+    image: grc-frontend:${IMAGE_TAG:-latest}
+    container_name: grc-frontend
+    environment:
+      PORT: 3000
+    networks:
+      - grc-network
+    restart: always
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+      - /var/run
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+
+  # ===========================================
+  # Gateway - nginx ingress (SPA + all 53 /api prefixes)
+  # ===========================================
+  # Single public entrypoint. ./gateway/nginx.conf is the production mirror of
+  # the Vite dev proxy table and owns ALL path routing, including the /api
+  # strips and renames the per-service Traefik PathPrefix labels could not
+  # express. Those labels have been removed from the six API services: the
+  # gateway is now the only thing Traefik talks to for ${APP_DOMAIN}.
+  gateway:
+    image: nginx:alpine
+    container_name: grc-gateway
+    volumes:
+      - ./gateway/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      frontend:
+        condition: service_healthy
+      controls:
+        condition: service_healthy
+      frameworks:
+        condition: service_healthy
+      policies:
+        condition: service_healthy
+      tprm:
+        condition: service_healthy
+      trust:
+        condition: service_healthy
+      audit:
+        condition: service_healthy
+    networks:
+      - grc-network
+      - grc-dmz
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=grc-dmz"
+      - "traefik.http.routers.gateway.rule=Host(`${APP_DOMAIN}`)"
+      - "traefik.http.routers.gateway.entrypoints=websecure"
+      - "traefik.http.routers.gateway.tls.certresolver=letsencrypt"
+      - "traefik.http.services.gateway.loadbalancer.server.port=80"
+      - "traefik.http.middlewares.gateway-ratelimit.ratelimit.average=200"
+      - "traefik.http.middlewares.gateway-ratelimit.ratelimit.burst=100"
+      - "traefik.http.routers.gateway.middlewares=gateway-ratelimit"
+    restart: always
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+      - NET_BIND_SERVICE
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+      - /var/run
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 64M
 
   # ===========================================
   # Backup Scheduler - Automated Backups
@@ -783,10 +778,6 @@ volumes:
   postgres_backups:
     driver: local
   minio_data:
-    driver: local
-  keycloak_data:
-    driver: local
-  keycloak_certs:
     driver: local
   traefik_letsencrypt:
     driver: local

@@ -14,7 +14,8 @@ cd gigachad-grc
 ./scripts/start-demo.sh
 ```
 
-Then open **http://localhost:3000** and click **"Dev Login (Skip SSO)"**.
+Then open **http://localhost:3000** and click **"Dev Login (Skip SSO)"** — the
+demo bypass, which needs no Firebase project and no password.
 
 A first run installs dependencies and builds everything, so it takes a few
 minutes. Once `node_modules/` is present the whole start-up finishes in well
@@ -60,7 +61,7 @@ The script performs these steps in order:
 
 1. Checks prerequisites and that every required host port is free
 2. Creates `.env` from `env.development` if it does not exist
-3. Starts infrastructure in Docker: `postgres`, `keycloak`, `minio`
+3. Starts infrastructure in Docker: `postgres`, `minio`
 4. Creates the schema with `prisma db push`, then applies
    `database/dev-bootstrap.sql` (the development organization and user)
 5. Runs `npm install` if `node_modules/` is missing, then builds
@@ -83,8 +84,11 @@ very long first-time image build. Press `Ctrl+C` to stop the host processes.
 > hand; they fail against a Prisma-managed schema.
 
 > **`database/dev-bootstrap.sql` is not optional.** It inserts the single
-> organization and user that `DevAuthGuard` hard-codes. Without those rows the
-> demo seeder fails with a Prisma `P2025` (record not found) error.
+> organization (`8924f0c1-7bb1-4be8-84ee-ad8725c712bf`) and user
+> (`8f88a42b-e799-455c-b68a-308d7d2e9aa4`, `john.doe@example.com`,
+> `external_id` = `demo-user`) that `AUTH_MODE=demo` resolves against. Without
+> those rows every request is refused and the demo seeder fails with a Prisma
+> `P2025` (record not found) error.
 
 ## What You Get
 
@@ -113,30 +117,43 @@ throttled at 5 req/s, 30 req/10s and 100 req/min.
 
 ## Signing In
 
-Open **http://localhost:3000** and click **"Dev Login (Skip SSO)"**. No password
-is required — you land as an admin of the demo organization.
+Sign-in is **Firebase Authentication with Google as the only provider**. The
+ID token proves identity; the role, permissions and organization always come
+from the `users` row in PostgreSQL.
 
-> Use `localhost`, **not** `127.0.0.1`. The Keycloak client in
-> `auth/realm-export.json` only allows `http://localhost:3000/*` as a redirect
-> URI, so `http://127.0.0.1:3000` produces an "invalid redirect uri" page.
+The local demo does not need a Firebase project. `scripts/start-demo.sh` starts
+the six services with **`AUTH_MODE=demo`**, which is the one and only auth
+bypass: `FirebaseAuthGuard`
+(`services/shared/src/auth/firebase-auth.guard.ts`) skips token verification
+and loads the seeded demo identity (`external_id` = `demo-user`) through the
+same database code path a real Google sign-in uses.
 
-Keycloak itself must be running even though Dev Login bypasses SSO:
-`frontend/src/contexts/AuthContext.tsx` calls
-`keycloak.init({ onLoad: 'check-sso' })` on every page load, and with Keycloak
-down the browser fails with `ERR_CONNECTION_REFUSED` before the login screen
-renders.
+Open **http://localhost:3000** and click **"Dev Login (Skip SSO)"**. No
+password is required — you land as an admin of the demo organization.
 
-The Dev Login button is gated on Vite's built-in `import.meta.env.DEV`, so it
-appears automatically in the dev server. You do **not** need to set
-`VITE_ENABLE_DEV_AUTH`; that variable exists only to make production builds fail
-loudly if dev auth is left switched on.
+> The button is rendered only when the Vite dev server sees
+> **`VITE_AUTH_MODE=demo`** — `frontend/src/contexts/AuthContext.tsx` gates it
+> on `import.meta.env.DEV && import.meta.env.VITE_AUTH_MODE === 'demo'`.
+> `env.development` sets it (line 107) and `start-demo.sh` copies that file to
+> `.env` on first run, so the button is there out of the box. It cannot leak
+> into a deployment: Vite compiles `import.meta.env.DEV` to `false` in a
+> production build, which makes the whole branch dead code no matter what the
+> variable says.
 
-> ⚠️ **Development auth is not authentication.** In development every
-> controller uses `DevAuthGuard`, which fabricates a full-permission admin from
-> any request and never validates a token. The real JWKS-validating
-> `JwtAuthGuard` in `services/shared/src/auth/jwt.guard.ts` is currently wired
-> to zero controllers. Keep this stack bound to loopback and never expose it to
-> a network.
+> Use `localhost`, **not** `127.0.0.1`. `CORS_ORIGINS` in `env.development`
+> lists `http://localhost:3000`, and a Firebase project's Authorized domains
+> list works the same way, so the loopback IP is not an accepted origin.
+
+> ⚠️ **`AUTH_MODE=demo` is not authentication.** Every request is served as the
+> demo admin. The guard hard-throws when `NODE_ENV=production`, so it cannot
+> reach a real deployment, but keep this stack bound to loopback and never
+> expose it to a network.
+
+To exercise a real Google sign-in locally, unset `AUTH_MODE`, set
+`FIREBASE_PROJECT_ID`, `ALLOWED_EMAIL_DOMAINS` and the three
+`VITE_FIREBASE_*` values in `.env`, and add a `users` row for your Google
+address. The full procedure is in the
+[Deployment Runbook](./DEPLOYMENT-RUNBOOK.md).
 
 ## Where Everything Runs
 
@@ -149,7 +166,6 @@ loudly if dev auth is left switched on.
 | **TPRM API** | http://localhost:3005 | Vendors, contracts, vendor assessments |
 | **Trust API** | http://localhost:3006 | Questionnaires, knowledge base, trust center |
 | **Audit API** | http://localhost:3007 | Audits, findings, workpapers, reports |
-| **Keycloak Admin** | http://localhost:8080 | Realm `gigachad-grc`; credentials from `.env` (`KEYCLOAK_ADMIN` / `KEYCLOAK_ADMIN_PASSWORD`, `admin` / `admin` in `env.development`) |
 | **MinIO Console** | http://localhost:9001 | `minioadmin` / the `MINIO_ROOT_PASSWORD` value in your `.env` (`start-demo.sh` prints it on startup) |
 | **PostgreSQL** | localhost:5433 | Container listens on 5432 |
 
@@ -160,16 +176,22 @@ for the demo.
 
 ### Health check
 
-Only the controls service exposes a health route:
+All six services wire the shared `HealthModule`, so each one answers on its own
+port:
+
+```bash
+curl http://localhost:3001/health         # full check (database + memory)
+curl http://localhost:3001/health/live    # liveness
+curl http://localhost:3001/health/ready   # readiness
+```
+
+The controls service additionally exposes a richer, unauthenticated
+`GET /api/system/health`:
 
 ```bash
 curl http://localhost:3001/api/system/health
 # {"status":"healthy",...}
 ```
-
-The other five services expose none — the shared `HealthModule` is not wired
-into them, so `/health` returns 404. Use a TCP port check for readiness, which
-is what `start-demo.sh` does.
 
 ## Connection Reference
 
@@ -179,9 +201,10 @@ there rather than retyping them.
 | Variable | Value in `env.development` | Description |
 |----------|----------------------------|-------------|
 | `DATABASE_URL` | `postgresql://grc:<POSTGRES_PASSWORD>@localhost:5433/gigachad_grc` | PostgreSQL connection (user `grc`, database `gigachad_grc`, host port 5433) |
-| `KEYCLOAK_REALM` | `gigachad-grc` | Realm imported from `auth/realm-export.json` |
-| `KEYCLOAK_CLIENT_ID` | `grc-services` | Backend client (the frontend uses `grc-frontend`) |
-| `NODE_ENV` | `development` | Must stay `development`; `DevAuthGuard` throws on `production`, which turns every controls endpoint into an HTTP 500 |
+| `AUTH_MODE` | `demo` | The one auth bypass: `FirebaseAuthGuard` serves every request as the seeded demo admin. The guard throws if `NODE_ENV=production` |
+| `VITE_AUTH_MODE` | `demo` | Renders the **Dev Login (Skip SSO)** button in the dev server |
+| `FIREBASE_PROJECT_ID` | *(empty)* | Required only when you turn `AUTH_MODE` off and use real Google sign-in |
+| `NODE_ENV` | `development` | Must stay `development`; `FirebaseAuthGuard` refuses to boot with `AUTH_MODE=demo` and `NODE_ENV=production` |
 | `VITE_API_URL` | *(empty)* | Leave empty so the Vite proxy routes each `/api/*` prefix to the right service |
 
 There is no `env.example` at the repository root. The templates are
@@ -243,8 +266,10 @@ The frontend runs the same way:
 cd frontend && npm run dev -- --port 3000 --strictPort
 ```
 
-Keep the port fixed at 3000: if Vite moves to another port, Keycloak's redirect
-URI allow-list no longer matches and sign-in breaks.
+Keep the port fixed at 3000: `CORS_ORIGINS` in `env.development` lists
+`http://localhost:3000`, and it is the origin a Firebase project's Authorized
+domains list would be configured for, so a different port breaks API calls and
+real Google sign-in.
 
 Other handy root scripts:
 
@@ -256,8 +281,9 @@ npm run db:studio      # browse the database in Prisma Studio
 
 ## Troubleshooting
 
-See the [Troubleshooting Guide](./TROUBLESHOOTING.md) for port conflicts, database
-connection failures, the `NODE_ENV=production` HTTP 500, and logs (`.demo/logs/`).
+See the [Troubleshooting Guide](./TROUBLESHOOTING.md) for port conflicts,
+database connection failures, services that refuse to boot because `.env` sets
+`NODE_ENV=production`, and logs (`.demo/logs/`).
 
 Not covered there: `docker-compose.dev.yml` is stale — it references
 `services/integrations`, `services/mcp` and `frontend/Dockerfile.dev`, none of
@@ -274,4 +300,4 @@ which exist in the repository. It is not a supported workflow.
 - 📖 [Documentation index](../README.md)
 - 🏗️ [Architecture](./ARCHITECTURE.md)
 - 🐛 [Troubleshooting Guide](./TROUBLESHOOTING.md)
-- 🚀 [Production Deployment](./PRODUCTION_DEPLOYMENT.md)
+- 🚀 [Deployment Runbook](./DEPLOYMENT-RUNBOOK.md) — start-to-finish production deployment

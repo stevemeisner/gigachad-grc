@@ -9,14 +9,13 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { OrgId, UserId } from '@gigachad-grc/shared';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { FirebaseAuthGuard, OrgId, UserId } from '@gigachad-grc/shared';
 import { FindingsService } from './findings.service';
 import { CreateFindingDto } from './dto/create-finding.dto';
 import { UpdateFindingDto } from './dto/update-finding.dto';
 
 @Controller('findings')
-@UseGuards(DevAuthGuard)
+@UseGuards(FirebaseAuthGuard)
 export class FindingsController {
   constructor(private readonly findingsService: FindingsService) {}
 

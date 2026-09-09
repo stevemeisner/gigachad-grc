@@ -86,9 +86,12 @@ export class SystemHealthService {
   private async runSecurityChecks(): Promise<HealthCheckResult[]> {
     const checks: HealthCheckResult[] = [];
 
-    // Check if running in production with dev auth
+    // Check if running in production with the demo auth bypass.
+    // This previously keyed off KEYCLOAK_URL/USE_DEV_AUTH; with Keycloak gone
+    // those are always unset, which would have made isDevAuth permanently
+    // true and the check meaningless. AUTH_MODE is now the only bypass.
     const nodeEnv = process.env.NODE_ENV || 'development';
-    const isDevAuth = !process.env.KEYCLOAK_URL || process.env.USE_DEV_AUTH === 'true';
+    const isDevAuth = process.env.AUTH_MODE === 'demo';
 
     checks.push({
       id: 'security-auth-mode',
@@ -105,9 +108,9 @@ export class SystemHealthService {
           ? 'CRITICAL: Using development authentication in production!'
           : isDevAuth
             ? 'Using development authentication (acceptable for dev/test)'
-            : 'Using Keycloak authentication',
+            : 'Using Firebase authentication',
       recommendation: isDevAuth
-        ? 'Configure Keycloak for production authentication'
+        ? 'Set AUTH_MODE to something other than demo and configure FIREBASE_PROJECT_ID'
         : undefined,
       documentationUrl: '/docs/help/admin/organization.md',
     });
@@ -399,30 +402,51 @@ export class SystemHealthService {
   private async runAuthenticationChecks(): Promise<HealthCheckResult[]> {
     const checks: HealthCheckResult[] = [];
 
-    // Check Keycloak configuration
-    const keycloakUrl = process.env.KEYCLOAK_URL;
-    const keycloakRealm = process.env.KEYCLOAK_REALM;
+    // Check Firebase authentication configuration
+    const firebaseProjectId = process.env.FIREBASE_PROJECT_ID;
+    const allowedDomains = process.env.ALLOWED_EMAIL_DOMAINS;
+    const demoMode = process.env.AUTH_MODE === 'demo';
     const nodeEnv = process.env.NODE_ENV || 'development';
+    const authConfigured = demoMode || !!firebaseProjectId;
 
     checks.push({
-      id: 'auth-keycloak-config',
-      name: 'Keycloak Configuration',
+      id: 'auth-firebase-config',
+      name: 'Firebase Configuration',
       category: CheckCategory.AUTHENTICATION,
-      status:
-        keycloakUrl && keycloakRealm
-          ? HealthStatus.HEALTHY
-          : nodeEnv === 'production'
-            ? HealthStatus.CRITICAL
-            : HealthStatus.WARNING,
-      message:
-        keycloakUrl && keycloakRealm
-          ? `Keycloak configured at ${keycloakUrl} (realm: ${keycloakRealm})`
-          : 'Keycloak is not configured',
-      recommendation:
-        !keycloakUrl || !keycloakRealm
-          ? 'Configure Keycloak for SSO authentication'
-          : undefined,
-      documentationUrl: '/deploy/README.md#configure-keycloak',
+      status: authConfigured
+        ? HealthStatus.HEALTHY
+        : nodeEnv === 'production'
+          ? HealthStatus.CRITICAL
+          : HealthStatus.WARNING,
+      message: demoMode
+        ? 'AUTH_MODE=demo: tokens are not verified (development only)'
+        : firebaseProjectId
+          ? `Firebase project ${firebaseProjectId}`
+          : 'FIREBASE_PROJECT_ID is not set',
+      recommendation: !authConfigured
+        ? 'Set FIREBASE_PROJECT_ID to the Firebase project that issues your ID tokens'
+        : undefined,
+      documentationUrl: '/docs/DEPLOYMENT-RUNBOOK.md',
+    });
+
+    // Without an allowlist any verified Google account can reach the API; the
+    // provisioned-users requirement is then the only remaining gate.
+    checks.push({
+      id: 'auth-domain-allowlist',
+      name: 'Email Domain Allowlist',
+      category: CheckCategory.AUTHENTICATION,
+      status: allowedDomains
+        ? HealthStatus.HEALTHY
+        : nodeEnv === 'production'
+          ? HealthStatus.WARNING
+          : HealthStatus.HEALTHY,
+      message: allowedDomains
+        ? `Sign-in restricted to: ${allowedDomains}`
+        : 'No email domain restriction configured',
+      recommendation: !allowedDomains
+        ? 'Set ALLOWED_EMAIL_DOMAINS to your company domain'
+        : undefined,
+      documentationUrl: '/docs/DEPLOYMENT-RUNBOOK.md',
     });
 
     // Check session configuration
@@ -613,8 +637,9 @@ export class SystemHealthService {
       {
         id: 'authentication',
         check: async () => {
-          const keycloakUrl = process.env.KEYCLOAK_URL;
-          return !!keycloakUrl;
+          // Demo mode counts as configured: the stack is deliberately running
+          // without a real identity provider.
+          return process.env.AUTH_MODE === 'demo' || !!process.env.FIREBASE_PROJECT_ID;
         },
       },
       {

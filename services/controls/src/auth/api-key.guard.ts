@@ -50,7 +50,7 @@ export class ApiKeyAuthGuard implements CanActivate {
     // Note: API keys use 'viewer' as base role, permissions are defined by scopes
     const userContext: UserContext = {
       userId: apiKeyRecord.createdBy,
-      keycloakId: `api-key:${apiKeyRecord.id}`,
+      externalId: `api-key:${apiKeyRecord.id}`,
       email: `api-key-${apiKeyRecord.keyPrefix}@system`,
       organizationId: apiKeyRecord.organizationId,
       role: 'viewer', // Base role - actual permissions come from scopes
@@ -151,7 +151,13 @@ export class ApiKeyAuthGuard implements CanActivate {
   }
 
   /**
-   * Build permissions array from API key scopes
+   * Build the informational permissions array from API key scopes.
+   *
+   * These strings are exposed on `request.user.permissions` for logging and
+   * for callers that want to introspect a key, but they do NOT grant
+   * anything: PermissionGuard resolves authorization from the database for
+   * the user the key was created by. Adding a scope to a key cannot widen
+   * that user's access.
    */
   private buildPermissions(scopes: string[]): string[] {
     // API key scopes are already in permission format

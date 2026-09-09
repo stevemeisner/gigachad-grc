@@ -9,12 +9,11 @@ import {
 import { ApiTags, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { EmployeeComplianceService } from './employee-compliance.service';
 import { ComplianceScoreService } from './compliance-score.service';
-import { DevAuthGuard, User } from '../auth/dev-auth.guard';
-import type { UserContext } from '@gigachad-grc/shared';
+import { AuthUser, FirebaseAuthGuard, type UserContext } from '@gigachad-grc/shared';
 
 @ApiTags('Employee Compliance')
 @Controller('api/employee-compliance')
-@UseGuards(DevAuthGuard)
+@UseGuards(FirebaseAuthGuard)
 export class EmployeeComplianceController {
   constructor(
     private readonly employeeComplianceService: EmployeeComplianceService,
@@ -32,7 +31,7 @@ export class EmployeeComplianceController {
   @ApiQuery({ name: 'sortBy', required: false, type: String })
   @ApiQuery({ name: 'sortOrder', required: false, type: String })
   async listEmployees(
-    @User() user: UserContext,
+    @AuthUser() user: UserContext,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
     @Query('search') search?: string,
@@ -57,31 +56,31 @@ export class EmployeeComplianceController {
 
   @Get('dashboard')
   @ApiOperation({ summary: 'Get compliance dashboard metrics' })
-  async getDashboard(@User() user: UserContext) {
+  async getDashboard(@AuthUser() user: UserContext) {
     return this.employeeComplianceService.getDashboardMetrics(user.organizationId);
   }
 
   @Get('departments')
   @ApiOperation({ summary: 'Get unique departments' })
-  async getDepartments(@User() user: UserContext) {
+  async getDepartments(@AuthUser() user: UserContext) {
     return this.employeeComplianceService.getDepartments(user.organizationId);
   }
 
   @Get('missing')
   @ApiOperation({ summary: 'Find employees missing data from certain systems' })
-  async getMissingData(@User() user: UserContext) {
+  async getMissingData(@AuthUser() user: UserContext) {
     return this.employeeComplianceService.findMissingData(user.organizationId);
   }
 
   @Post('sync')
   @ApiOperation({ summary: 'Trigger sync from all employee-related integrations' })
-  async triggerSync(@User() user: UserContext) {
+  async triggerSync(@AuthUser() user: UserContext) {
     return this.employeeComplianceService.triggerSync(user.organizationId);
   }
 
   @Post('recalculate-scores')
   @ApiOperation({ summary: 'Recalculate compliance scores for all employees' })
-  async recalculateScores(@User() user: UserContext) {
+  async recalculateScores(@AuthUser() user: UserContext) {
     const count = await this.complianceScoreService.recalculateOrganizationScores(
       user.organizationId,
     );
@@ -91,7 +90,7 @@ export class EmployeeComplianceController {
   @Get(':id')
   @ApiOperation({ summary: 'Get detailed employee compliance profile' })
   async getEmployeeDetail(
-    @User() user: UserContext,
+    @AuthUser() user: UserContext,
     @Param('id') id: string,
   ) {
     return this.employeeComplianceService.getEmployeeDetail(

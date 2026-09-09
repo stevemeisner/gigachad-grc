@@ -11,9 +11,8 @@ import {
   HttpStatus,
   UseGuards,
 } from '@nestjs/common';
-import { OrgId, UserEmail, UserId } from '@gigachad-grc/shared';
+import { FirebaseAuthGuard, OrgId, UserEmail, UserId } from '@gigachad-grc/shared';
 import { RiskService } from './risk.service';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
 import { PermissionGuard } from '../auth/permission.guard';
 import { RequirePermission } from '../auth/decorators/require-permission.decorator';
 import { Resource, Action } from '../permissions/dto/permission.dto';
@@ -39,7 +38,7 @@ import {
 } from './dto/risk.dto';
 
 @Controller('api/risks')
-@UseGuards(DevAuthGuard, PermissionGuard)
+@UseGuards(FirebaseAuthGuard, PermissionGuard)
 export class RiskController {
   constructor(private readonly riskService: RiskService) {}
 

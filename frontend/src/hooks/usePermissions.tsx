@@ -24,7 +24,7 @@ interface EffectivePermission {
     tags?: string[];
     categories?: string[];
   };
-  source: 'group' | 'override';
+  source: 'group' | 'override' | 'role';
   groupName?: string;
 }
 

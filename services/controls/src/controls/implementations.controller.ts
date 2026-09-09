@@ -23,16 +23,16 @@ import {
   BulkUpdateImplementationsDto,
 } from './dto/implementation.dto';
 import {
-  Roles,
   CurrentUser,
+  FirebaseAuthGuard,
+  Roles,
   UserContext,
 } from '@gigachad-grc/shared';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
 
 @ApiTags('implementations')
 @ApiBearerAuth()
 @Controller('api/implementations')
-@UseGuards(DevAuthGuard)
+@UseGuards(FirebaseAuthGuard)
 export class ImplementationsController {
   constructor(private readonly implementationsService: ImplementationsService) {}
 

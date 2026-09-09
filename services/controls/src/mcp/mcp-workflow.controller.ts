@@ -10,13 +10,13 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { MCPWorkflowService } from './mcp-workflow.service';
-import { DevAuthGuard } from '../auth/dev-auth.guard';
+import { FirebaseAuthGuard } from '@gigachad-grc/shared';
 import { PermissionGuard } from '../auth/permission.guard';
 import { RequirePermission } from '../auth/decorators/require-permission.decorator';
 import { Resource, Action } from '../permissions/dto/permission.dto';
 
 @Controller('api/mcp/workflows')
-@UseGuards(DevAuthGuard, PermissionGuard)
+@UseGuards(FirebaseAuthGuard, PermissionGuard)
 export class MCPWorkflowController {
   private readonly logger = new Logger(MCPWorkflowController.name);
 
