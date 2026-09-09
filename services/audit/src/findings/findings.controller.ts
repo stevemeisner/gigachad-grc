@@ -7,27 +7,30 @@ import {
   Param,
   Delete,
   Query,
-  Headers,
+  UseGuards,
 } from '@nestjs/common';
+import { OrgId, UserId } from '@gigachad-grc/shared';
+import { DevAuthGuard } from '../auth/dev-auth.guard';
 import { FindingsService } from './findings.service';
 import { CreateFindingDto } from './dto/create-finding.dto';
 import { UpdateFindingDto } from './dto/update-finding.dto';
 
 @Controller('findings')
+@UseGuards(DevAuthGuard)
 export class FindingsController {
   constructor(private readonly findingsService: FindingsService) {}
 
   @Post()
   create(
     @Body() createFindingDto: CreateFindingDto,
-    @Headers('x-user-id') userId: string,
+    @UserId() userId: string,
   ) {
-    return this.findingsService.create(createFindingDto, userId || 'system');
+    return this.findingsService.create(createFindingDto, userId);
   }
 
   @Get()
   findAll(
-    @Headers('x-organization-id') organizationId: string,
+    @OrgId() organizationId: string,
     @Query('auditId') auditId?: string,
     @Query('status') status?: string,
     @Query('severity') severity?: string,
@@ -44,14 +47,14 @@ export class FindingsController {
   }
 
   @Get('stats')
-  getStats(@Headers('x-organization-id') organizationId: string) {
+  getStats(@OrgId() organizationId: string) {
     return this.findingsService.getStats(organizationId);
   }
 
   @Get(':id')
   findOne(
     @Param('id') id: string,
-    @Headers('x-organization-id') organizationId: string,
+    @OrgId() organizationId: string,
   ) {
     return this.findingsService.findOne(id, organizationId);
   }
@@ -59,7 +62,7 @@ export class FindingsController {
   @Patch(':id')
   update(
     @Param('id') id: string,
-    @Headers('x-organization-id') organizationId: string,
+    @OrgId() organizationId: string,
     @Body() updateFindingDto: UpdateFindingDto,
   ) {
     return this.findingsService.update(id, organizationId, updateFindingDto);
@@ -68,14 +71,14 @@ export class FindingsController {
   @Delete(':id')
   delete(
     @Param('id') id: string,
-    @Headers('x-organization-id') organizationId: string,
+    @OrgId() organizationId: string,
   ) {
     return this.findingsService.delete(id, organizationId);
   }
 
   @Post('bulk/status')
   bulkUpdateStatus(
-    @Headers('x-organization-id') organizationId: string,
+    @OrgId() organizationId: string,
     @Body() body: { ids: string[]; status: string },
   ) {
     return this.findingsService.bulkUpdateStatus(body.ids, organizationId, body.status);

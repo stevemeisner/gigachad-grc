@@ -7,10 +7,12 @@ import {
   Body,
   Param,
   Query,
-  Headers,
   HttpCode,
   HttpStatus,
+  UseGuards,
 } from '@nestjs/common';
+import { OrgId, UserEmail, UserId } from '@gigachad-grc/shared';
+import { DevAuthGuard } from '../auth/dev-auth.guard';
 import { AssetsService } from './assets.service';
 import {
   AssetFilterDto,
@@ -19,6 +21,7 @@ import {
 } from './dto/asset.dto';
 
 @Controller('api/assets')
+@UseGuards(DevAuthGuard)
 export class AssetsController {
   constructor(private readonly assetsService: AssetsService) {}
 
@@ -31,7 +34,7 @@ export class AssetsController {
     @Query() filters: AssetFilterDto,
     @Query('page') page: string = '1',
     @Query('limit') limit: string = '50',
-    @Headers('x-organization-id') orgId: string = 'default',
+    @OrgId() orgId: string,
   ) {
     return this.assetsService.findAll(
       orgId,
@@ -43,21 +46,21 @@ export class AssetsController {
 
   @Get('stats')
   async getStats(
-    @Headers('x-organization-id') orgId: string = 'default',
+    @OrgId() orgId: string,
   ) {
     return this.assetsService.getStats(orgId);
   }
 
   @Get('sources')
   async getSources(
-    @Headers('x-organization-id') orgId: string = 'default',
+    @OrgId() orgId: string,
   ) {
     return this.assetsService.getSources(orgId);
   }
 
   @Get('departments')
   async getDepartments(
-    @Headers('x-organization-id') orgId: string = 'default',
+    @OrgId() orgId: string,
   ) {
     return this.assetsService.getDepartments(orgId);
   }
@@ -65,7 +68,7 @@ export class AssetsController {
   @Get(':id')
   async getAsset(
     @Param('id') id: string,
-    @Headers('x-organization-id') orgId: string = 'default',
+    @OrgId() orgId: string,
   ) {
     return this.assetsService.findOne(id, orgId);
   }
@@ -73,9 +76,9 @@ export class AssetsController {
   @Post()
   async createAsset(
     @Body() dto: CreateAssetDto,
-    @Headers('x-organization-id') orgId: string = 'default',
-    @Headers('x-user-id') userId: string = 'system',
-    @Headers('x-user-email') userEmail?: string,
+    @OrgId() orgId: string,
+    @UserId() userId: string,
+    @UserEmail() userEmail?: string,
   ) {
     return this.assetsService.create(orgId, dto, userId, userEmail);
   }
@@ -84,9 +87,9 @@ export class AssetsController {
   async updateAsset(
     @Param('id') id: string,
     @Body() dto: UpdateAssetDto,
-    @Headers('x-organization-id') orgId: string = 'default',
-    @Headers('x-user-id') userId: string = 'system',
-    @Headers('x-user-email') userEmail?: string,
+    @OrgId() orgId: string,
+    @UserId() userId: string,
+    @UserEmail() userEmail?: string,
   ) {
     return this.assetsService.update(id, orgId, dto, userId, userEmail);
   }
@@ -95,9 +98,9 @@ export class AssetsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteAsset(
     @Param('id') id: string,
-    @Headers('x-organization-id') orgId: string = 'default',
-    @Headers('x-user-id') userId: string = 'system',
-    @Headers('x-user-email') userEmail?: string,
+    @OrgId() orgId: string,
+    @UserId() userId: string,
+    @UserEmail() userEmail?: string,
   ) {
     await this.assetsService.delete(id, orgId, userId, userEmail);
   }
@@ -110,9 +113,9 @@ export class AssetsController {
   async syncFromSource(
     @Param('source') source: string,
     @Body() body: { integrationId: string },
-    @Headers('x-organization-id') orgId: string = 'default',
-    @Headers('x-user-id') userId: string = 'system',
-    @Headers('x-user-email') userEmail?: string,
+    @OrgId() orgId: string,
+    @UserId() userId: string,
+    @UserEmail() userEmail?: string,
   ) {
     if (source === 'jamf') {
       return this.assetsService.syncFromJamf(

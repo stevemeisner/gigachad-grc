@@ -1,3 +1,4 @@
+export * from './identity.decorators';
 export * from './jwt.guard';
 export * from './roles.decorator';
 export * from './user.decorator';

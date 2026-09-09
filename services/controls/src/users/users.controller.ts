@@ -6,11 +6,11 @@ import {
   Body,
   Param,
   Query,
-  Headers,
   HttpCode,
   HttpStatus,
   UseGuards,
 } from '@nestjs/common';
+import { OrgId, UserEmail, UserId } from '@gigachad-grc/shared';
 import { UsersService } from './users.service';
 import { PermissionsService } from '../permissions/permissions.service';
 import { GroupsService } from '../permissions/groups.service';
@@ -45,7 +45,7 @@ export class UsersController {
     @Query() filters: UserFilterDto,
     @Query('page', new PaginationPagePipe()) page: number,
     @Query('limit', new PaginationLimitPipe({ default: 50 })) limit: number,
-    @Headers('x-organization-id') orgId: string = 'default',
+    @OrgId() orgId: string,
   ) {
     return this.usersService.findAll(orgId, filters, page, limit);
   }
@@ -53,15 +53,15 @@ export class UsersController {
   @Get('stats')
   @RequirePermission(Resource.USERS, Action.READ)
   async getUserStats(
-    @Headers('x-organization-id') orgId: string = 'default',
+    @OrgId() orgId: string,
   ) {
     return this.usersService.getStats(orgId);
   }
 
   @Get('me')
   async getCurrentUser(
-    @Headers('x-user-id') userId: string,
-    @Headers('x-organization-id') orgId: string = 'default',
+    @UserId() userId: string,
+    @OrgId() orgId: string,
   ) {
     if (!userId) {
       return null;
@@ -80,7 +80,7 @@ export class UsersController {
   @RequirePermission(Resource.USERS, Action.READ)
   async getUser(
     @Param('id') id: string,
-    @Headers('x-organization-id') orgId: string = 'default',
+    @OrgId() orgId: string,
   ) {
     return this.usersService.findOne(id, orgId);
   }
@@ -89,7 +89,7 @@ export class UsersController {
   @RequirePermission(Resource.USERS, Action.READ)
   async getUserPermissions(
     @Param('id') id: string,
-    @Headers('x-organization-id') orgId: string = 'default',
+    @OrgId() orgId: string,
   ) {
     return this.permissionsService.getUserPermissions(id, orgId);
   }
@@ -98,9 +98,9 @@ export class UsersController {
   @RequirePermission(Resource.USERS, Action.CREATE)
   async createUser(
     @Body() dto: CreateUserDto,
-    @Headers('x-organization-id') orgId: string = 'default',
-    @Headers('x-user-id') actorId?: string,
-    @Headers('x-user-email') actorEmail?: string,
+    @OrgId() orgId: string,
+    @UserId() actorId?: string,
+    @UserEmail() actorEmail?: string,
   ) {
     return this.usersService.create(orgId, dto, actorId, actorEmail);
   }
@@ -110,9 +110,9 @@ export class UsersController {
   async updateUser(
     @Param('id') id: string,
     @Body() dto: UpdateUserDto,
-    @Headers('x-organization-id') orgId: string = 'default',
-    @Headers('x-user-id') actorId?: string,
-    @Headers('x-user-email') actorEmail?: string,
+    @OrgId() orgId: string,
+    @UserId() actorId?: string,
+    @UserEmail() actorEmail?: string,
   ) {
     return this.usersService.update(id, orgId, dto, actorId, actorEmail);
   }
@@ -122,9 +122,9 @@ export class UsersController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async deactivateUser(
     @Param('id') id: string,
-    @Headers('x-organization-id') orgId: string = 'default',
-    @Headers('x-user-id') actorId?: string,
-    @Headers('x-user-email') actorEmail?: string,
+    @OrgId() orgId: string,
+    @UserId() actorId?: string,
+    @UserEmail() actorEmail?: string,
   ) {
     await this.usersService.deactivate(id, orgId, actorId, actorEmail);
   }
@@ -134,9 +134,9 @@ export class UsersController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async reactivateUser(
     @Param('id') id: string,
-    @Headers('x-organization-id') orgId: string = 'default',
-    @Headers('x-user-id') actorId?: string,
-    @Headers('x-user-email') actorEmail?: string,
+    @OrgId() orgId: string,
+    @UserId() actorId?: string,
+    @UserEmail() actorEmail?: string,
   ) {
     await this.usersService.reactivate(id, orgId, actorId, actorEmail);
   }
@@ -149,7 +149,7 @@ export class UsersController {
   @RequirePermission(Resource.USERS, Action.READ)
   async getUserGroups(
     @Param('id') id: string,
-    @Headers('x-organization-id') orgId: string = 'default',
+    @OrgId() orgId: string,
   ) {
     const user = await this.usersService.findOne(id, orgId);
     return user.groups;
@@ -161,9 +161,9 @@ export class UsersController {
   async addUserToGroup(
     @Param('id') userId: string,
     @Param('groupId') groupId: string,
-    @Headers('x-organization-id') orgId: string = 'default',
-    @Headers('x-user-id') actorId?: string,
-    @Headers('x-user-email') actorEmail?: string,
+    @OrgId() orgId: string,
+    @UserId() actorId?: string,
+    @UserEmail() actorEmail?: string,
   ) {
     await this.groupsService.addMember(groupId, userId, orgId, actorId, actorEmail);
     return { success: true };
@@ -175,9 +175,9 @@ export class UsersController {
   async removeUserFromGroup(
     @Param('id') userId: string,
     @Param('groupId') groupId: string,
-    @Headers('x-organization-id') orgId: string = 'default',
-    @Headers('x-user-id') actorId?: string,
-    @Headers('x-user-email') actorEmail?: string,
+    @OrgId() orgId: string,
+    @UserId() actorId?: string,
+    @UserEmail() actorEmail?: string,
   ) {
     await this.groupsService.removeMember(groupId, userId, orgId, actorId, actorEmail);
   }
@@ -189,7 +189,7 @@ export class UsersController {
   @Post('sync')
   async syncFromKeycloak(
     @Body() dto: SyncUserFromKeycloakDto,
-    @Headers('x-organization-id') orgId: string = 'default',
+    @OrgId() orgId: string,
   ) {
     return this.usersService.syncFromKeycloak(orgId, dto);
   }

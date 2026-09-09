@@ -7,12 +7,12 @@ import {
   Body,
   Param,
   Query,
-  Headers,
   HttpCode,
   HttpStatus,
   ValidationPipe,
   UseGuards,
 } from '@nestjs/common';
+import { OrgId, UserId } from '@gigachad-grc/shared';
 import { RiskScenariosService } from './risk-scenarios.service';
 import { DevAuthGuard } from '../auth/dev-auth.guard';
 import { PermissionGuard } from '../auth/permission.guard';
@@ -33,7 +33,7 @@ export class RiskScenariosController {
   @Get()
   @RequirePermission(Resource.RISK, Action.READ)
   async list(
-    @Headers('x-organization-id') organizationId: string,
+    @OrgId() organizationId: string,
     @Query(new ValidationPipe({ transform: true })) query: ListRiskScenariosQueryDto,
   ) {
     return this.riskScenariosService.listScenarios(organizationId, query);
@@ -41,7 +41,7 @@ export class RiskScenariosController {
 
   @Get('templates')
   @RequirePermission(Resource.RISK, Action.READ)
-  async getTemplates(@Headers('x-organization-id') organizationId: string) {
+  async getTemplates(@OrgId() organizationId: string) {
     return this.riskScenariosService.getTemplates(organizationId);
   }
 
@@ -61,20 +61,20 @@ export class RiskScenariosController {
 
   @Get('categories')
   @RequirePermission(Resource.RISK, Action.READ)
-  async getCategories(@Headers('x-organization-id') organizationId: string) {
+  async getCategories(@OrgId() organizationId: string) {
     return this.riskScenariosService.getCategories(organizationId);
   }
 
   @Get('statistics')
   @RequirePermission(Resource.RISK, Action.READ)
-  async getStatistics(@Headers('x-organization-id') organizationId: string) {
+  async getStatistics(@OrgId() organizationId: string) {
     return this.riskScenariosService.getStatistics(organizationId);
   }
 
   @Get(':id')
   @RequirePermission(Resource.RISK, Action.READ)
   async get(
-    @Headers('x-organization-id') organizationId: string,
+    @OrgId() organizationId: string,
     @Param('id') id: string,
   ) {
     return this.riskScenariosService.getScenario(organizationId, id);
@@ -84,8 +84,8 @@ export class RiskScenariosController {
   @HttpCode(HttpStatus.CREATED)
   @RequirePermission(Resource.RISK, Action.CREATE)
   async create(
-    @Headers('x-organization-id') organizationId: string,
-    @Headers('x-user-id') userId: string,
+    @OrgId() organizationId: string,
+    @UserId() userId: string,
     @Body(new ValidationPipe({ transform: true })) dto: CreateRiskScenarioDto,
   ) {
     return this.riskScenariosService.createScenario(organizationId, userId, dto);
@@ -94,8 +94,8 @@ export class RiskScenariosController {
   @Put(':id')
   @RequirePermission(Resource.RISK, Action.UPDATE)
   async update(
-    @Headers('x-organization-id') organizationId: string,
-    @Headers('x-user-id') userId: string,
+    @OrgId() organizationId: string,
+    @UserId() userId: string,
     @Param('id') id: string,
     @Body(new ValidationPipe({ transform: true })) dto: UpdateRiskScenarioDto,
   ) {
@@ -106,8 +106,8 @@ export class RiskScenariosController {
   @HttpCode(HttpStatus.NO_CONTENT)
   @RequirePermission(Resource.RISK, Action.DELETE)
   async delete(
-    @Headers('x-organization-id') organizationId: string,
-    @Headers('x-user-id') userId: string,
+    @OrgId() organizationId: string,
+    @UserId() userId: string,
     @Param('id') id: string,
   ) {
     return this.riskScenariosService.deleteScenario(organizationId, userId, id);
@@ -116,8 +116,8 @@ export class RiskScenariosController {
   @Post(':id/clone')
   @RequirePermission(Resource.RISK, Action.CREATE)
   async clone(
-    @Headers('x-organization-id') organizationId: string,
-    @Headers('x-user-id') userId: string,
+    @OrgId() organizationId: string,
+    @UserId() userId: string,
     @Param('id') id: string,
     @Body() dto: CloneScenarioDto,
   ) {
@@ -127,7 +127,7 @@ export class RiskScenariosController {
   @Post(':id/simulate')
   @RequirePermission(Resource.RISK, Action.UPDATE)
   async simulate(
-    @Headers('x-organization-id') organizationId: string,
+    @OrgId() organizationId: string,
     @Param('id') id: string,
     @Body() body: { controlEffectiveness?: number; mitigations?: string[] },
   ) {
@@ -137,8 +137,8 @@ export class RiskScenariosController {
   @Post('bulk/from-templates')
   @RequirePermission(Resource.RISK, Action.CREATE)
   async bulkCreateFromTemplates(
-    @Headers('x-organization-id') organizationId: string,
-    @Headers('x-user-id') userId: string,
+    @OrgId() organizationId: string,
+    @UserId() userId: string,
     @Body() body: { templateIds: string[] },
   ) {
     return this.riskScenariosService.bulkCreateFromTemplates(

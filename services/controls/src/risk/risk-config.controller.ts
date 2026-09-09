@@ -6,12 +6,15 @@ import {
   Delete,
   Body,
   Param,
-  Headers,
+  UseGuards,
 } from '@nestjs/common';
+import { OrgId, UserId } from '@gigachad-grc/shared';
+import { DevAuthGuard } from '../auth/dev-auth.guard';
 import { RiskConfigService } from './risk-config.service';
 import { UpdateRiskConfigurationDto, RiskCategoryDto } from './dto/risk-config.dto';
 
 @Controller('api/risk-config')
+@UseGuards(DevAuthGuard)
 export class RiskConfigController {
   constructor(private readonly riskConfigService: RiskConfigService) {}
 
@@ -20,10 +23,9 @@ export class RiskConfigController {
    */
   @Get()
   async getConfiguration(
-    @Headers('x-organization-id') organizationId: string,
+    @OrgId() organizationId: string,
   ) {
-    const orgId = organizationId || 'default-org';
-    return this.riskConfigService.getConfiguration(orgId);
+    return this.riskConfigService.getConfiguration(organizationId);
   }
 
   /**
@@ -31,13 +33,11 @@ export class RiskConfigController {
    */
   @Put()
   async updateConfiguration(
-    @Headers('x-organization-id') organizationId: string,
-    @Headers('x-user-id') userId: string,
+    @OrgId() organizationId: string,
+    @UserId() userId: string,
     @Body() dto: UpdateRiskConfigurationDto,
   ) {
-    const orgId = organizationId || 'default-org';
-    const user = userId || 'system';
-    return this.riskConfigService.updateConfiguration(orgId, dto, user);
+    return this.riskConfigService.updateConfiguration(organizationId, dto, userId);
   }
 
   /**
@@ -45,12 +45,10 @@ export class RiskConfigController {
    */
   @Post('reset')
   async resetToDefaults(
-    @Headers('x-organization-id') organizationId: string,
-    @Headers('x-user-id') userId: string,
+    @OrgId() organizationId: string,
+    @UserId() userId: string,
   ) {
-    const orgId = organizationId || 'default-org';
-    const user = userId || 'system';
-    return this.riskConfigService.resetToDefaults(orgId, user);
+    return this.riskConfigService.resetToDefaults(organizationId, userId);
   }
 
   /**
@@ -58,13 +56,11 @@ export class RiskConfigController {
    */
   @Post('categories')
   async addCategory(
-    @Headers('x-organization-id') organizationId: string,
-    @Headers('x-user-id') userId: string,
+    @OrgId() organizationId: string,
+    @UserId() userId: string,
     @Body() category: Omit<RiskCategoryDto, 'id'>,
   ) {
-    const orgId = organizationId || 'default-org';
-    const user = userId || 'system';
-    return this.riskConfigService.addCategory(orgId, category, user);
+    return this.riskConfigService.addCategory(organizationId, category, userId);
   }
 
   /**
@@ -72,13 +68,11 @@ export class RiskConfigController {
    */
   @Delete('categories/:categoryId')
   async removeCategory(
-    @Headers('x-organization-id') organizationId: string,
-    @Headers('x-user-id') userId: string,
+    @OrgId() organizationId: string,
+    @UserId() userId: string,
     @Param('categoryId') categoryId: string,
   ) {
-    const orgId = organizationId || 'default-org';
-    const user = userId || 'system';
-    return this.riskConfigService.removeCategory(orgId, categoryId, user);
+    return this.riskConfigService.removeCategory(organizationId, categoryId, userId);
   }
 
   /**
@@ -86,19 +80,17 @@ export class RiskConfigController {
    */
   @Put('appetite/:category')
   async updateRiskAppetite(
-    @Headers('x-organization-id') organizationId: string,
-    @Headers('x-user-id') userId: string,
+    @OrgId() organizationId: string,
+    @UserId() userId: string,
     @Param('category') category: string,
     @Body() body: { level: string; description?: string },
   ) {
-    const orgId = organizationId || 'default-org';
-    const user = userId || 'system';
     return this.riskConfigService.updateRiskAppetite(
-      orgId,
+      organizationId,
       category,
       body.level,
       body.description,
-      user,
+      userId,
     );
   }
 }

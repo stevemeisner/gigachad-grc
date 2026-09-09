@@ -7,11 +7,11 @@ import {
   Query,
   Body,
   Put,
-  Headers,
   HttpCode,
   HttpStatus,
   UseGuards,
 } from '@nestjs/common';
+import { UserId } from '@gigachad-grc/shared';
 import { NotificationsService } from './notifications.service';
 import {
   NotificationFilterDto,
@@ -33,7 +33,7 @@ export class NotificationsController {
 
   @Get()
   async findAll(
-    @Headers('x-user-id') userId: string = 'default-user',
+    @UserId() userId: string,
     @Query() filters: NotificationFilterDto,
   ) {
     return this.notificationsService.findAll(userId, filters);
@@ -41,7 +41,7 @@ export class NotificationsController {
 
   @Get('unread-count')
   async getUnreadCount(
-    @Headers('x-user-id') userId: string = 'default-user',
+    @UserId() userId: string,
   ): Promise<{ count: number }> {
     const count = await this.notificationsService.getUnreadCount(userId);
     return { count };
@@ -49,14 +49,14 @@ export class NotificationsController {
 
   @Get('stats')
   async getStats(
-    @Headers('x-user-id') userId: string = 'default-user',
+    @UserId() userId: string,
   ): Promise<NotificationStatsDto> {
     return this.notificationsService.getStats(userId);
   }
 
   @Get(':id')
   async findOne(
-    @Headers('x-user-id') userId: string = 'default-user',
+    @UserId() userId: string,
     @Param('id') id: string,
   ) {
     return this.notificationsService.findOne(userId, id);
@@ -69,7 +69,7 @@ export class NotificationsController {
   @Post('mark-read')
   @HttpCode(HttpStatus.OK)
   async markAsRead(
-    @Headers('x-user-id') userId: string = 'default-user',
+    @UserId() userId: string,
     @Body() dto: MarkReadDto,
   ): Promise<{ updated: number }> {
     return this.notificationsService.markAsRead(userId, dto);
@@ -78,7 +78,7 @@ export class NotificationsController {
   @Post(':id/read')
   @HttpCode(HttpStatus.OK)
   async markOneAsRead(
-    @Headers('x-user-id') userId: string = 'default-user',
+    @UserId() userId: string,
     @Param('id') id: string,
   ): Promise<{ success: boolean }> {
     await this.notificationsService.markOneAsRead(userId, id);
@@ -92,7 +92,7 @@ export class NotificationsController {
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async delete(
-    @Headers('x-user-id') userId: string = 'default-user',
+    @UserId() userId: string,
     @Param('id') id: string,
   ): Promise<void> {
     await this.notificationsService.delete(userId, id);
@@ -100,7 +100,7 @@ export class NotificationsController {
 
   @Delete()
   async deleteAll(
-    @Headers('x-user-id') userId: string = 'default-user',
+    @UserId() userId: string,
   ): Promise<{ deleted: number }> {
     return this.notificationsService.deleteAll(userId);
   }
@@ -111,14 +111,14 @@ export class NotificationsController {
 
   @Get('preferences/list')
   async getPreferences(
-    @Headers('x-user-id') userId: string = 'default-user',
+    @UserId() userId: string,
   ): Promise<NotificationPreferenceResponseDto[]> {
     return this.notificationsService.getPreferences(userId);
   }
 
   @Put('preferences')
   async updatePreferences(
-    @Headers('x-user-id') userId: string = 'default-user',
+    @UserId() userId: string,
     @Body() dto: UpdatePreferencesDto,
   ): Promise<{ success: boolean }> {
     await this.notificationsService.updatePreferences(userId, dto.preferences);
