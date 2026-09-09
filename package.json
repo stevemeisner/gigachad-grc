@@ -12,6 +12,13 @@
     "frontend"
   ],
   "scripts": {
+    "demo": "./scripts/start-demo.sh",
+    "demo:stop": "./scripts/stop-demo.sh",
+    "demo:reset": "./scripts/stop-demo.sh --clean && ./scripts/start-demo.sh",
+    "db:push": "prisma db push --schema=services/shared/prisma/schema.prisma",
+    "db:studio": "prisma studio --schema=services/shared/prisma/schema.prisma",
+    "build:shared": "npm --prefix services/shared run build",
+    "build:services": "npm run build:shared && for s in controls frameworks policies tprm trust audit; do npm --prefix services/$s run build || exit 1; done",
     "validate:production": "./scripts/validate-production.sh",
     "validate:production:strict": "./scripts/validate-production.sh --strict",
     "backup": "./deploy/backup.sh",
