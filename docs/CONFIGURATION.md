@@ -7,7 +7,7 @@
 3. [Service Configuration](#service-configuration)
 4. [Traefik Configuration](#traefik-configuration)
 5. [Database Configuration](#database-configuration)
-6. [Keycloak Configuration](#keycloak-configuration)
+6. [Authentication Configuration](#authentication-configuration)
 7. [MinIO Configuration](#minio-configuration)
 8. [Security Configuration](#security-configuration)
 9. [Monitoring Configuration](#monitoring-configuration)
@@ -88,18 +88,19 @@ chmod 600 .env  # Restrict permissions
 postgresql://USER:PASSWORD@HOST:PORT/DATABASE
 ```
 
-#### Authentication (Keycloak)
+#### Authentication (Firebase Authentication)
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `KEYCLOAK_ADMIN` | Yes | `admin` | Admin username |
-| `KEYCLOAK_ADMIN_PASSWORD` | Yes | - | Admin password |
-| `KEYCLOAK_HOSTNAME` | Yes | - | Keycloak hostname (e.g., `auth.grc.example.com`) |
-| `KEYCLOAK_REALM` | Yes | `grc` | Realm name |
-| `KC_DB_POOL_INITIAL_SIZE` | No | `5` | Initial DB pool size |
-| `KC_DB_POOL_MIN_SIZE` | No | `5` | Minimum DB pool size |
-| `KC_DB_POOL_MAX_SIZE` | No | `20` | Maximum DB pool size |
-| `KC_LOG_LEVEL` | No | `info` | Keycloak log level |
+| `FIREBASE_PROJECT_ID` | Yes (unless `AUTH_MODE=demo`) | - | Firebase project id. Pins the accepted token issuer and audience; the auth guard refuses to start without it |
+| `ALLOWED_EMAIL_DOMAINS` | Yes in production | empty | Comma-separated email domain allowlist. Empty disables the check |
+| `AUTH_AUTO_PROVISION` | No | `false` | Create a `viewer` row on first sign-in instead of requiring one to exist |
+| `AUTH_DEFAULT_ORG_ID` | Only with `AUTH_AUTO_PROVISION=true` | - | Organization UUID auto-provisioned users join |
+| `AUTH_MODE` | No | unset | `demo` is the only auth bypass; hard-throws when `NODE_ENV=production` |
+| `VITE_FIREBASE_API_KEY` | Yes (build-time) | - | Firebase Web API key — a public client identifier, not a secret |
+| `VITE_FIREBASE_AUTH_DOMAIN` | Yes (build-time) | - | Usually `<project-id>.firebaseapp.com` |
+| `VITE_FIREBASE_PROJECT_ID` | Yes (build-time) | - | Same value as `FIREBASE_PROJECT_ID` |
+| `VITE_ALLOWED_EMAIL_DOMAIN` | No (build-time) | - | Google `hd` account-chooser hint only; restricts nothing |
 
 #### Object Storage (MinIO)
 
@@ -107,8 +108,8 @@ postgresql://USER:PASSWORD@HOST:PORT/DATABASE
 |----------|----------|---------|-------------|
 | `MINIO_ROOT_USER` | Yes | `minioadmin` | MinIO root username |
 | `MINIO_ROOT_PASSWORD` | Yes | - | MinIO root password |
-| `MINIO_BROWSER` | No | `on` | Enable web console (`on`/`off`) |
-| `MINIO_DOMAIN` | No | - | MinIO domain (e.g., `storage.grc.example.com`) |
+| `MINIO_BROWSER` | No | `off` | MinIO's own web console. Off in production; port 9001 is not published and no Traefik router points at it |
+| `MINIO_DOMAIN` | No | `storage.${APP_DOMAIN}` | Host for the S3 API router (e.g. `storage.grc.example.com`) |
 
 #### Security
 
@@ -215,17 +216,23 @@ openssl rand -base64 64 | tr -d '\n'
 ### Controls Service (Port 3001)
 
 ```yaml
+# docker-compose.prod.yml
 environment:
   NODE_ENV: production
   PORT: 3001
-  DATABASE_URL: postgresql://...
+  DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
   MINIO_ENDPOINT: minio
   MINIO_PORT: 9000
   MINIO_USE_SSL: false
   MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
   MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
-  KEYCLOAK_URL: http://keycloak:8080/auth
-  KEYCLOAK_REALM: ${KEYCLOAK_REALM}
+  # Firebase Authentication (Google provider only). The ID token proves
+  # IDENTITY ONLY - role, permissions and organization are read from
+  # PostgreSQL on every request, never from token claims.
+  FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID}
+  ALLOWED_EMAIL_DOMAINS: ${ALLOWED_EMAIL_DOMAINS}
+  AUTH_AUTO_PROVISION: ${AUTH_AUTO_PROVISION:-false}
+  AUTH_DEFAULT_ORG_ID: ${AUTH_DEFAULT_ORG_ID}
   JWT_SECRET: ${JWT_SECRET}
   LOG_LEVEL: ${LOG_LEVEL:-info}
   RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
@@ -239,125 +246,84 @@ Each service accepts:
 
 | Variable | Description |
 |----------|-------------|
-| `PORT` | Service port |
+| `PORT` | Service port (3001 controls, 3002 frameworks, 3004 policies, 3005 tprm, 3006 trust, 3007 audit) |
 | `DATABASE_URL` | PostgreSQL connection string |
 | `MINIO_*` | MinIO configuration |
-| `KEYCLOAK_*` | Keycloak configuration |
-| `JWT_SECRET` | JWT signing secret |
+| `FIREBASE_PROJECT_ID`, `ALLOWED_EMAIL_DOMAINS`, `AUTH_AUTO_PROVISION`, `AUTH_DEFAULT_ORG_ID` | Authentication settings read by `FirebaseAuthGuard` |
+| `JWT_SECRET` | Reserved for internal service-to-service tokens |
 | `LOG_LEVEL` | Logging level |
 | `RATE_LIMIT_*` | Rate limiting settings |
+
+Every service exposes `GET /health`, which is what the compose healthcheck
+polls. The controls service additionally exposes `GET /api/system/health`.
 
 ---
 
 ## Traefik Configuration
 
-### Static Configuration (`gateway/traefik.yml`)
+### How Traefik is configured
+
+In production, Traefik is configured entirely by **command flags** in
+`docker-compose.prod.yml` — not by a static file. `gateway/traefik.yml`
+exists but is only used by the local `docker-compose.yml` stack. The flags
+that matter:
 
 ```yaml
-# API Dashboard
-api:
-  dashboard: true
-  insecure: false  # Require authentication in production
-
-# Logging
-log:
-  level: INFO
-  format: json
-  filePath: /var/log/traefik/traefik.log
-
-accessLog:
-  format: json
-  filePath: /var/log/traefik/access.log
-  bufferingSize: 100
-  fields:
-    defaultMode: keep
-    headers:
-      defaultMode: drop
-      names:
-        User-Agent: keep
-        Authorization: drop
-
-# Entry Points
-entryPoints:
-  web:
-    address: ":80"
-    http:
-      redirections:
-        entryPoint:
-          to: websecure
-          scheme: https
-  websecure:
-    address: ":443"
-    http:
-      tls:
-        certResolver: letsencrypt
-    transport:
-      respondingTimeouts:
-        readTimeout: 60s
-        writeTimeout: 60s
-        idleTimeout: 120s
-
-# Providers
-providers:
-  docker:
-    endpoint: "unix:///var/run/docker.sock"
-    exposedByDefault: false
-    network: grc-network
-    watch: true
-    
-  file:
-    directory: /etc/traefik/dynamic
-    watch: true
-
-# Certificate Resolvers
-certificatesResolvers:
-  letsencrypt:
-    acme:
-      email: ${ACME_EMAIL}
-      storage: /letsencrypt/acme.json
-      httpChallenge:
-        entryPoint: web
-
-# Health Check
-ping:
-  entryPoint: web
-  manualRouting: false
-
-# Metrics (optional)
-metrics:
-  prometheus:
-    addEntryPointsLabels: true
-    addServicesLabels: true
-    buckets:
-      - 0.1
-      - 0.3
-      - 1.2
-      - 5.0
+command:
+  - "--api.dashboard=false"
+  - "--providers.docker=true"
+  - "--providers.docker.exposedbydefault=false"
+  - "--entrypoints.web.address=:80"
+  - "--entrypoints.websecure.address=:443"
+  - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
+  - "--entrypoints.web.http.redirections.entryPoint.scheme=https"
+  - "--certificatesresolvers.letsencrypt.acme.httpchallenge=true"
+  - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
+  - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL}"
+  - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+  - "--log.level=${TRAEFIK_LOG_LEVEL:-WARN}"
+  - "--log.format=json"
+  - "--accesslog=true"
+  - "--accesslog.format=json"
 ```
+
+Notes:
+
+- The dashboard is **off**. Nothing but ports 80 and 443 is published.
+- Port 80 exists to redirect to HTTPS and to answer the ACME HTTP challenge;
+  it must stay open in the firewall or certificate renewal fails.
+- The access log goes to **stdout**, so Docker's `json-file` driver owns
+  rotation (`docker compose logs traefik`). There is no log volume: a file
+  the application writes itself is never rotated by Docker and would grow
+  until the disk filled.
+- `acme.json` lives in the `traefik_letsencrypt` volume. Back it up or accept
+  a fresh issuance after a rebuild.
+- Routing is discovered from container labels (`providers.docker`), and only
+  the `gateway` and `minio` services opt in with `traefik.enable=true`.
 
 ### Dynamic Configuration (Docker Labels)
 
+Only the `gateway` service routes the application. Its labels in
+`docker-compose.prod.yml` are the whole routing table as far as Traefik is
+concerned; the `/api/*` fan-out happens inside `gateway/nginx.conf`:
+
 ```yaml
-# Service Labels Template
 labels:
-  # Enable Traefik
   - "traefik.enable=true"
-  
-  # Router configuration
-  - "traefik.http.routers.${SERVICE}.rule=Host(`${APP_DOMAIN}`) && PathPrefix(`/api/${PATH}`)"
-  - "traefik.http.routers.${SERVICE}.entrypoints=websecure"
-  - "traefik.http.routers.${SERVICE}.tls.certresolver=letsencrypt"
-  
-  # Service configuration
-  - "traefik.http.services.${SERVICE}.loadbalancer.server.port=${PORT}"
-  - "traefik.http.services.${SERVICE}.loadbalancer.healthcheck.path=/health"
-  - "traefik.http.services.${SERVICE}.loadbalancer.healthcheck.interval=10s"
-  
-  # Middleware
-  - "traefik.http.middlewares.${SERVICE}-ratelimit.ratelimit.average=100"
-  - "traefik.http.middlewares.${SERVICE}-ratelimit.ratelimit.burst=50"
-  - "traefik.http.routers.${SERVICE}.middlewares=${SERVICE}-ratelimit"
+  - "traefik.docker.network=grc-dmz"
+  - "traefik.http.routers.gateway.rule=Host(`${APP_DOMAIN}`)"
+  - "traefik.http.routers.gateway.entrypoints=websecure"
+  - "traefik.http.routers.gateway.tls.certresolver=letsencrypt"
+  - "traefik.http.services.gateway.loadbalancer.server.port=80"
+  - "traefik.http.middlewares.gateway-ratelimit.ratelimit.average=200"
+  - "traefik.http.middlewares.gateway-ratelimit.ratelimit.burst=100"
+  - "traefik.http.routers.gateway.middlewares=gateway-ratelimit"
 ```
+
+The six API services carry **no** Traefik labels in production — they are on
+the `internal: true` network and are reached only through the gateway. (The
+local `docker-compose.yml` stack is different: there Traefik routes each
+`PathPrefix` straight to a service.)
 
 ### Security Headers Middleware
 
@@ -443,52 +409,39 @@ reserve_pool_timeout = 3
 
 ---
 
-## Keycloak Configuration
+## Authentication Configuration
 
-### Realm Configuration
+Identity comes from **Firebase Authentication with Google sign-in only**.
+There is nothing to configure in this repository beyond the environment
+variables above — the provider itself is configured in the Firebase console:
 
-Export current realm:
-```bash
-docker exec grc-keycloak /opt/keycloak/bin/kc.sh export \
-  --dir /tmp/export \
-  --realm grc
-```
+1. **Build → Authentication → Sign-in method**: enable **Google** and nothing
+   else. The backend rejects any token whose `sign_in_provider` is not
+   `google.com`.
+2. **Authentication → Settings → Authorized domains**: add the app's public
+   hostname. This names the origins allowed to *complete* a sign-in; it does
+   not decide who may sign in.
+3. **Project settings → General**: collect the Project ID, Web API key and
+   auth domain for `FIREBASE_PROJECT_ID` / `VITE_FIREBASE_*`.
 
-### Client Configuration
+See [Deployment Runbook](./DEPLOYMENT-RUNBOOK.md) for the full procedure,
+including creating the first administrator row.
 
-```json
-{
-  "clientId": "grc-frontend",
-  "name": "GRC Frontend",
-  "enabled": true,
-  "publicClient": true,
-  "standardFlowEnabled": true,
-  "implicitFlowEnabled": false,
-  "directAccessGrantsEnabled": false,
-  "redirectUris": [
-    "https://grc.example.com/*",
-    "http://localhost:3000/*"
-  ],
-  "webOrigins": [
-    "https://grc.example.com",
-    "http://localhost:3000"
-  ],
-  "attributes": {
-    "pkce.code.challenge.method": "S256"
-  }
-}
-```
+### Roles
 
-### Role Configuration
+Roles live in the `users.role` column in PostgreSQL, never in a token claim.
+`UserRole` is:
 
-| Role | Description | Permissions |
-|------|-------------|-------------|
-| `admin` | Full access | All resources |
-| `compliance_manager` | Manage compliance | Controls, frameworks, policies |
-| `risk_manager` | Manage risks | Risks, risk config |
-| `auditor` | Audit access | Read all, audit management |
-| `vendor_manager` | Manage vendors | Vendors, assessments, contracts |
-| `viewer` | Read-only | View all resources |
+| Role | Description | Fallback permission group |
+|------|-------------|---------------------------|
+| `admin` | Full access | Administrator |
+| `compliance_manager` | Manage controls, evidence and policies | Compliance Manager |
+| `auditor` | Read-only plus evidence approval | Auditor |
+| `viewer` | Read-only | Viewer |
+
+The role is only a fallback: a user's real permissions come from the
+permission groups they belong to plus per-user overrides. See
+[Security Model](./SECURITY_MODEL.md#authorization).
 
 ---
 
@@ -599,50 +552,52 @@ spec:
 
 ## Monitoring Configuration
 
+The optional monitoring stack lives in `deploy/monitoring/` and is started
+separately from the application:
+
+| File | Purpose |
+|------|---------|
+| `docker-compose.monitoring.yml` | Prometheus, Grafana, Loki, Promtail, node-exporter, cAdvisor, Alertmanager |
+| `prometheus.yml` | Scrape targets |
+| `alerts.yml` | Alert rules |
+| `alertmanager.yml` | Alert routing |
+| `loki-config.yml`, `promtail-config.yml` | Log aggregation |
+
 ### Prometheus Targets
 
+Only the controls service currently exports application metrics — it is the
+one service wired to `@willsoto/nestjs-prometheus`. The other five job
+definitions are present but commented out in `deploy/monitoring/prometheus.yml`
+precisely because they have no `/metrics` endpoint yet.
+
 ```yaml
-scrape_configs:
-  - job_name: 'grc-services'
+  - job_name: 'grc-controls'
+    metrics_path: /metrics
     static_configs:
-      - targets:
-          - 'controls:3001'
-          - 'frameworks:3002'
-          - 'policies:3004'
-          - 'tprm:3005'
-          - 'trust:3006'
-          - 'audit:3007'
-    metrics_path: '/health'
+      - targets: ['controls:3001']
+
+  - job_name: 'minio'
+    metrics_path: /minio/v2/metrics/cluster
+    static_configs:
+      - targets: ['minio:9000']
 ```
+
+Note the path: metrics are on `/metrics`, not `/health`. `/health` returns
+JSON for a container healthcheck, not a Prometheus exposition.
 
 ### Alert Rules
 
-```yaml
-groups:
-  - name: grc-alerts
-    rules:
-      - alert: ServiceDown
-        expr: up{job="grc-services"} == 0
-        for: 1m
-        labels:
-          severity: critical
-        annotations:
-          summary: "GRC service {{ $labels.instance }} is down"
-          
-      - alert: HighErrorRate
-        expr: rate(http_requests_total{status=~"5.."}[5m]) > 0.1
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "High error rate on {{ $labels.service }}"
-```
+Defined in `deploy/monitoring/alerts.yml`.
 
-### Grafana Dashboards
+### Grafana
 
-Import dashboards from:
-- `deploy/monitoring/dashboards/grc-overview.json`
-- `deploy/monitoring/dashboards/service-metrics.json`
+`docker-compose.monitoring.yml` mounts
+`./deploy/monitoring/grafana/provisioning` read-only, but **that directory
+does not exist in the repository** — create it (with the usual
+`datasources/` and `dashboards/` subdirectories) before starting the
+monitoring stack, or the mount produces an empty provisioning tree and
+Grafana comes up with no data source configured. There are no pre-built
+dashboard JSON files here either.
 
 ---
 
@@ -651,12 +606,17 @@ Import dashboards from:
 ### Validate Environment
 
 ```bash
-# Check all required variables
+# Environment values: required variables, secret strength, and that
+# AUTH_MODE=demo is not enabled in production. Reads .env.prod.
+npm run validate:production
+
+# Deployment prerequisites: tooling, Docker daemon, disk space, host ports
+# 80/443, and the presence of the config files a deploy needs.
 ./deploy/preflight-check.sh
 
 # Validate specific service
-docker-compose config --services
-docker-compose config | grep -A5 controls
+docker compose config --services
+docker compose config | grep -A5 controls
 ```
 
 ### Test Connectivity
@@ -665,8 +625,11 @@ docker-compose config | grep -A5 controls
 # Database
 docker exec grc-controls nc -zv postgres 5432
 
-# Keycloak
-curl -s http://keycloak:8080/auth/health | jq
+# Service health (every service exposes GET /health)
+docker exec grc-controls wget -qO- http://localhost:3001/health
+
+# Aggregate health, controls service only
+docker exec grc-controls wget -qO- http://localhost:3001/api/system/health
 ```
 
 

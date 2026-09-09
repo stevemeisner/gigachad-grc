@@ -8,28 +8,77 @@ System health features are accessible to administrators in **Settings > Organiza
 
 ## System Health Banner
 
-The System Health Banner displays critical warnings at the top of the admin dashboard. It automatically checks for:
+The System Health Banner displays critical warnings at the top of the admin
+dashboard. It renders whatever `GET /api/system/warnings` returns — every check
+whose status is `warning` or `critical`. The checks are defined in
+`services/controls/src/system/system-health.service.ts`; nineteen run on every
+request, grouped into six categories.
 
-### Security Issues
-- **Development Authentication in Production**: Critical alert if using DevAuthGuard in production
-- **Default Passwords**: Warning if PostgreSQL or MinIO are using default passwords
-- **Missing Encryption Key**: Alert if ENCRYPTION_KEY is not set or too short
-- **Missing JWT Secret**: Warning if JWT_SECRET is not properly configured
+### Security (`security-*`)
+- **`security-auth-mode`** — Authentication Mode. `AUTH_MODE=demo` skips token
+  verification. Combined with `NODE_ENV=production` this is **critical**;
+  outside production it is a warning. Anything else reports "Using Firebase
+  authentication."
+- **`security-default-passwords`** — Default Passwords. Trips when
+  `POSTGRES_PASSWORD` or `MINIO_ROOT_PASSWORD` is empty or one of the known
+  defaults (`password`, `grc_secret`, `minioadmin`, `admin`); critical in
+  production, a warning elsewhere.
 
-### Backup Configuration
-- **Remote Backup Status**: Warning if DR_REMOTE_BACKUP_ENABLED is not true in production
-- **Backup Retention**: Alert if retention is less than 7 days
+  > **Known false positive.** The check also tests `REDIS_PASSWORD`, and the
+  > empty string counts as a default. Redis was removed from this platform, so
+  > `REDIS_PASSWORD` is never set and this check reports "One or more services
+  > are using default passwords" no matter how strong the real credentials are.
+  > Until `services/controls/src/system/system-health.service.ts` drops that
+  > term, treat this finding as uninformative and verify the Postgres and MinIO
+  > passwords yourself — and note that it costs the production-readiness score
+  > a full check in production, where it is critical.
+- **`security-encryption-key`** — Encryption Key. `ENCRYPTION_KEY` missing or
+  shorter than 32 characters; critical in production.
+- **`security-jwt-secret`** — JWT Secret. `JWT_SECRET` missing or shorter than
+  32 characters; critical in production.
 
-### Database Security
-- **SSL Connections**: Warning if database connections aren't using SSL in production
-- **Connection Pool Status**: Health monitoring of database connections
+### Authentication (`auth-*`)
+- **`auth-firebase-config`** — Firebase Configuration. Healthy when
+  `FIREBASE_PROJECT_ID` is set, or when `AUTH_MODE=demo` (reported as "tokens
+  are not verified (development only)"). Neither one set is critical in
+  production, a warning elsewhere.
+- **`auth-domain-allowlist`** — Email Domain Allowlist. A Firebase ID token
+  carries no hosted-domain claim, so `ALLOWED_EMAIL_DOMAINS` is what stops any
+  Google account from signing in. Unset is a warning in production.
+- **`auth-session-secret`** — Session Secret. `SESSION_SECRET` shorter than 32
+  characters; critical in production.
 
-### Storage Security
-- **Object Storage SSL**: Warning if MinIO/S3 connections aren't encrypted
+### Backup Configuration (`backup-*`)
+- **`backup-script-exists`** — warns when `deploy/backup.sh` cannot be found.
+- **`backup-remote-config`** — warns unless `DR_REMOTE_BACKUP_ENABLED=true` and
+  `DR_REMOTE_BACKUP_S3_BUCKET` is set.
+- **`backup-retention`** — `BACKUP_RETENTION_DAYS` (default 30). Under 30 days
+  is a warning; under 7 days is critical.
+
+### Database (`database-*`)
+- **`database-connectivity`** — runs `SELECT 1`; critical on failure.
+- **`database-ssl`** — warns unless `DATABASE_URL` contains `sslmode=require`
+  or `ssl=true`.
+- **`database-pool`** — reports the Prisma pool settings
+  (`DATABASE_CONNECTION_LIMIT`, `DATABASE_POOL_TIMEOUT`); informational only.
+
+### Storage (`storage-*`)
+- **`storage-minio-config`** — warns unless `MINIO_ENDPOINT` and
+  `MINIO_ACCESS_KEY` (or `MINIO_ROOT_USER`) are both set.
+- **`storage-ssl`** — warns unless `MINIO_USE_SSL=true`.
+
+### Configuration (`config-*`)
+- **`config-node-env`** — reports `NODE_ENV`; informational only.
+- **`config-cors`** — warns when `CORS_ORIGINS` is `*` in production.
+- **`config-rate-limit`** — warns when `RATE_LIMIT_ENABLED=false` in production.
+- **`config-logging`** — warns when `LOG_LEVEL=debug` in production.
 
 ## Production Readiness Score
 
-The Production Readiness widget provides a 0-100 score indicating how prepared your instance is for production deployment.
+The Production Readiness widget calls `GET /api/system/production-readiness`.
+The score is `(healthy + warnings × 0.5) / total × 100`, rounded — so warnings
+cost half a check and critical findings cost a whole one. `ready` is true only
+when no check is critical.
 
 ### Score Interpretation
 - **80-100 (Green)**: Production ready
@@ -37,12 +86,14 @@ The Production Readiness widget provides a 0-100 score indicating how prepared y
 - **0-59 (Red)**: Critical issues must be resolved
 
 ### Categories Checked
-1. **Security Configuration**
-2. **Backup Configuration**
-3. **Database Configuration**
-4. **Authentication Setup**
-5. **Network/CORS Settings**
-6. **Monitoring Configuration**
+The same six categories the health checks emit:
+
+1. **Security** — auth mode, default passwords, encryption key, JWT secret
+2. **Authentication** — Firebase project, email domain allowlist, session secret
+3. **Backup** — script presence, remote backup, retention
+4. **Database** — connectivity, SSL, pool settings
+5. **Storage** — MinIO/S3 configuration and SSL
+6. **Configuration** — `NODE_ENV`, CORS, rate limiting, log level
 
 ## Setup Wizard
 
@@ -52,7 +103,9 @@ For new installations, the Setup Wizard guides administrators through essential 
 2. **Encryption Key** - Generate and configure encryption
 3. **Admin User** - Create initial administrator account
 4. **Organization** - Set up default organization
-5. **Authentication** - Configure Keycloak SSO
+5. **Authentication** - Configure Firebase Authentication (Google sign-in).
+   Satisfied by `FIREBASE_PROJECT_ID`, or by `AUTH_MODE=demo` for local
+   development.
 6. **Backup Configuration** - Enable remote backup for disaster recovery
 
 The wizard can be accessed at any time from Settings to review configuration status.
@@ -140,6 +193,12 @@ Setup wizard progress status (admin only).
 ### GET /api/system/backup/status
 Backup configuration status (admin only).
 
+### GET /health
+Every service (controls 3001, frameworks 3002, policies 3004, tprm 3005, trust
+3006, audit 3007) exposes an unauthenticated `GET /health` from the shared
+`HealthController` for load-balancer and container probes. The
+`/api/system/*` routes above are served by the controls service only.
+
 ## Best Practices
 
 1. **Run validation before every deployment**
@@ -175,11 +234,25 @@ openssl rand -hex 32
 ```
 Add to your `.env.prod` file.
 
-### "Using development authentication in production"
-Ensure:
-- `USE_DEV_AUTH=false` or unset
-- `KEYCLOAK_URL` is configured
-- `KEYCLOAK_REALM` and `KEYCLOAK_CLIENT_ID` are set
+### "CRITICAL: Using development authentication in production!"
+`AUTH_MODE=demo` is set while `NODE_ENV=production`. The demo bypass skips
+Firebase token verification entirely and `FirebaseAuthGuard` refuses to start
+in that combination. Fix it by:
+- Unsetting `AUTH_MODE` (or setting it to anything other than `demo`)
+- Setting `FIREBASE_PROJECT_ID` to the Firebase project that issues your ID
+  tokens
+- Setting `ALLOWED_EMAIL_DOMAINS` to your company domain
+
+### "FIREBASE_PROJECT_ID is not set"
+The API cannot verify Google ID tokens without it. Set it to the Firebase
+project id (Firebase console > Project settings).
+
+### "No email domain restriction configured"
+A Firebase ID token carries no hosted-domain claim, so without an allowlist any
+Google account can present a valid token. Set the allowlist:
+```bash
+ALLOWED_EMAIL_DOMAINS=yourcompany.com
+```
 
 ### "Remote backup is not configured"
 Configure S3/MinIO for offsite backups:

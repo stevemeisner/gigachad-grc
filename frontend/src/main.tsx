@@ -17,12 +17,15 @@ import './lib/errorTracking';
 import * as serviceWorker from './lib/serviceWorker';
 import './index.css';
 
-// Hard guardrail: dev auth must never be enabled in production builds
-if (import.meta.env.PROD && import.meta.env.VITE_ENABLE_DEV_AUTH === 'true') {
-  // Fail fast so misconfigured builds don't silently ship
+// Hard guardrail: the demo sign-in bypass must never be enabled in production.
+// The bypass itself is already gated on import.meta.env.DEV, so this is belt
+// and braces -- it turns a misconfigured build into a loud failure instead of
+// a quiet one. (Previously keyed off VITE_ENABLE_DEV_AUTH, which no longer
+// exists; VITE_AUTH_MODE is the only auth switch now.)
+if (import.meta.env.PROD && import.meta.env.VITE_AUTH_MODE === 'demo') {
   // eslint-disable-next-line no-console
-  console.error('VITE_ENABLE_DEV_AUTH is enabled in a production build. This is not allowed.');
-  throw new Error('VITE_ENABLE_DEV_AUTH must be false or unset in production builds.');
+  console.error('VITE_AUTH_MODE=demo in a production build. This is not allowed.');
+  throw new Error('VITE_AUTH_MODE must not be "demo" in production builds.');
 }
 
 /**

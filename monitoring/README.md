@@ -14,13 +14,18 @@ The monitoring stack provides real-time visibility into the health and performan
 - **Configuration**: `prometheus.yml`
 - **Purpose**: Metrics collection and storage
 
-**Scrape Targets:**
-- Prometheus self-monitoring
-- Controls Service (port 3001)
-- Audit Service (port 3007)
-- Keycloak (port 8080)
-- MinIO (port 9000)
-- Traefik (port 8082)
+**Scrape Targets** (`prometheus.yml`, local stack):
+- Prometheus self-monitoring (`localhost:9090`)
+- Controls Service (`controls:3001/metrics`) - the only API service that
+  registers `PrometheusModule`, so it is the only one exposing Prometheus
+  metrics today
+
+Targets for the other five services (frameworks 3002, policies 3004,
+tprm 3005, trust 3006, audit 3007), a `postgres_exporter` sidecar, MinIO and
+Traefik are present in `prometheus.yml` but commented out, each with the
+reason it cannot be scraped yet. Every one of those services exposes
+`GET /health` (JSON), which Prometheus cannot parse - a health endpoint is
+not a metrics endpoint.
 
 ### Grafana
 
@@ -47,31 +52,58 @@ docker-compose up -d prometheus grafana
 
 ## Adding Custom Metrics
 
-To expose metrics from your services, use the `prom-client` library:
+Services use `@willsoto/nestjs-prometheus`, which registers the `/metrics`
+endpoint for you. No service sets a global route prefix, so the path is
+`/metrics` (not `/api/metrics`).
+
+1. Register the module once per service, in its `app.module.ts`:
 
 ```typescript
-import { Counter, Histogram, register } from 'prom-client';
+import { PrometheusModule } from '@willsoto/nestjs-prometheus';
 
-// Create metrics
-const httpRequestsTotal = new Counter({
-  name: 'http_requests_total',
-  help: 'Total HTTP requests',
-  labelNames: ['method', 'path', 'status'],
-});
-
-const httpRequestDuration = new Histogram({
-  name: 'http_request_duration_seconds',
-  help: 'HTTP request duration in seconds',
-  labelNames: ['method', 'path'],
-  buckets: [0.01, 0.05, 0.1, 0.5, 1, 2, 5],
-});
-
-// Expose metrics endpoint
-app.get('/api/metrics', async (req, res) => {
-  res.set('Content-Type', register.contentType);
-  res.end(await register.metrics());
-});
+@Module({
+  imports: [
+    // ...
+    PrometheusModule.register(),
+  ],
+})
+export class AppModule {}
 ```
+
+2. Declare each metric as a provider in the owning feature module
+   (see `services/controls/src/collectors/collectors.module.ts`):
+
+```typescript
+import { makeCounterProvider } from '@willsoto/nestjs-prometheus';
+
+@Module({
+  providers: [
+    makeCounterProvider({
+      name: 'collectors_runs_total',
+      help: 'Total number of collector runs grouped by status',
+      labelNames: ['status'],
+    }),
+  ],
+})
+export class CollectorsModule {}
+```
+
+3. Inject and increment it (see
+   `services/controls/src/collectors/collectors.service.ts`):
+
+```typescript
+import { InjectMetric } from '@willsoto/nestjs-prometheus';
+import type { Counter } from 'prom-client';
+
+constructor(
+  @InjectMetric('collectors_runs_total')
+  private readonly collectorsRunsCounter: Counter<string>,
+) {}
+
+this.collectorsRunsCounter.inc({ status: 'success' });
+```
+
+4. Uncomment that service's job in `prometheus.yml`.
 
 ## Alert Rules
 
@@ -136,7 +168,9 @@ The monitoring services are accessible via Traefik:
 
 ### Prometheus not scraping targets
 
-1. Check service is exposing `/api/metrics` endpoint
+1. Check the service is exposing a `/metrics` endpoint (only `controls` does
+   today - see "Adding Custom Metrics" above); `/health` returns JSON and
+   will always show the target as down
 2. Verify network connectivity between containers
 3. Check Prometheus targets page: http://localhost:9090/targets
 

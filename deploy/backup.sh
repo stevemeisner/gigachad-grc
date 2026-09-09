@@ -211,9 +211,10 @@ backup_configurations() {
     [ -f "${PROJECT_DIR}/gateway/traefik.yml" ] && \
         cp "${PROJECT_DIR}/gateway/traefik.yml" "$config_backup_dir/" 2>/dev/null || true
 
-    # Copy Keycloak realm configuration if exists
-    [ -f "${PROJECT_DIR}/auth/realm-export.json" ] && \
-        cp "${PROJECT_DIR}/auth/realm-export.json" "$config_backup_dir/" 2>/dev/null || true
+    # Copy the nginx gateway routing configuration; docker-compose.prod.yml
+    # mounts it into the gateway container as the single public entrypoint
+    [ -f "${PROJECT_DIR}/gateway/nginx.conf" ] && \
+        cp "${PROJECT_DIR}/gateway/nginx.conf" "$config_backup_dir/" 2>/dev/null || true
 
     # Copy database init scripts if exist
     [ -d "${PROJECT_DIR}/database/init" ] && \
@@ -233,7 +234,6 @@ backup_volumes() {
     local volumes=(
         "gigachad-grc_postgres_data"
         "gigachad-grc_minio_data"
-        "gigachad-grc_keycloak_data"
         "gigachad-grc_traefik_letsencrypt"
     )
 

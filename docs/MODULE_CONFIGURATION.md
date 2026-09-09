@@ -357,7 +357,7 @@ If a user navigates directly to a disabled module's URL (e.g., bookmarked `/risk
 - Provides navigation back to enabled areas
 
 > **Important:** Module flags are **not a security boundary**. They control what is shown and routable in the **frontend UI**.  
-> Permissions and API access are still enforced by the backend (Keycloak roles, permission groups, and service guards).  
+> Permissions and API access are still enforced by the backend: `FirebaseAuthGuard` verifies the caller's identity, then `PermissionGuard` resolves their permissions from PostgreSQL permission groups (with a `users.role` fallback).  
 > Do **not** rely on module flags alone to restrict access for licensing or security-sensitive scenarios.
 
 ### Data Preservation

@@ -115,15 +115,18 @@ export class SystemHealthService {
       documentationUrl: '/docs/help/admin/organization.md',
     });
 
-    // Check for default passwords
+    // Check for default passwords.
+    //
+    // REDIS_PASSWORD used to be checked here. Redis has been removed, so that
+    // variable is now always empty -- and '' is itself in the default list, so
+    // including it tripped this check permanently and reported CRITICAL in
+    // production no matter how strong the real passwords were.
     const postgresPassword = process.env.POSTGRES_PASSWORD || '';
-    const redisPassword = process.env.REDIS_PASSWORD || '';
     const minioPassword = process.env.MINIO_ROOT_PASSWORD || '';
 
-    const defaultPasswords = ['password', 'grc_secret', 'redis_secret', 'minioadmin', 'admin', ''];
+    const defaultPasswords = ['password', 'grc_secret', 'minioadmin', 'admin', ''];
     const hasDefaultPassword =
       defaultPasswords.includes(postgresPassword) ||
-      defaultPasswords.includes(redisPassword) ||
       defaultPasswords.includes(minioPassword);
 
     checks.push({

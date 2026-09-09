@@ -9,40 +9,58 @@
 
 Before running QA tests:
 
-1. **Start Infrastructure:**
+1. **Start the platform:**
    ```bash
-   cp env.development .env
-   docker-compose up -d
+   ./scripts/start-demo.sh
    ```
+   This copies `env.development` to `.env` (which sets `AUTH_MODE=demo` and
+   `VITE_AUTH_MODE=demo`), starts PostgreSQL and MinIO in Docker, applies the
+   schema, starts the six services on the host and the Vite dev server, and
+   loads demo data on the first run.
 
-2. **Wait for services to be healthy:**
+2. **Confirm it is up:**
    ```bash
-   docker-compose ps
-   # All services should show "healthy" or "Up"
+   docker compose ps                                   # postgres + minio
+   curl -fsS http://localhost:3001/api/system/health    # controls
    ```
 
 3. **Access points:**
-   - Frontend: http://localhost (via Traefik) or http://localhost:5173 (Vite dev)
-   - Controls API: http://localhost:3001/api/docs
-   - Keycloak Admin: http://localhost:8080 (admin/admin)
-   - MinIO Console: http://localhost:9001 (minioadmin/[see .env])
-   - Traefik Dashboard: http://localhost:8090
+   - Frontend: http://localhost:3000 (use `localhost`, not `127.0.0.1`)
+   - Controls API docs: http://localhost:3001/api/docs
+   - MinIO Console: http://localhost:9001 (`MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` from `.env`)
+
+> These tests run against the `AUTH_MODE=demo` bypass, which serves every
+> request as the seeded admin (`john.doe@example.com`). Anything that depends on
+> a real Google sign-in, on non-admin roles, or on a second organization cannot
+> be exercised this way — see the notes in Test Suite 1.
 
 ---
 
 ## Test Suite 1: Authentication & Authorization
 
-### 1.1 User Login (Keycloak)
+### 1.1 Sign-in
+
+Identity is Firebase Authentication with Google sign-in only. There is no
+username/password form, so "invalid credentials" and "token refresh" are
+Google's behaviour, not this application's.
 
 | Test | Steps | Expected Result | Status |
 |------|-------|-----------------|--------|
-| Login with valid credentials | 1. Navigate to app<br>2. Click Login<br>3. Enter demo user credentials | Redirected to dashboard | ⬜ |
-| Login with invalid credentials | 1. Navigate to login<br>2. Enter wrong password | Error message displayed | ⬜ |
-| Session persistence | 1. Login<br>2. Refresh page | User remains logged in | ⬜ |
-| Logout | 1. Click user menu<br>2. Click Logout | Redirected to login, session cleared | ⬜ |
-| Token refresh | 1. Login<br>2. Wait 5+ minutes<br>3. Perform action | Action succeeds (token auto-refreshed) | ⬜ |
+| Demo sign-in | 1. Open http://localhost:3000<br>2. Click **Dev Login (Skip SSO)** | Dashboard loads as John Doe (admin) | ⬜ |
+| Session persistence | 1. Sign in<br>2. Refresh the page | Still signed in (demo session is kept in `sessionStorage`) | ⬜ |
+| Logout | 1. Click the user menu<br>2. Click Logout | Returned to the login page, session cleared | ⬜ |
+| Bypass is dev-only | 1. `cd frontend && npm run build`<br>2. `npm run preview` | No "Dev Login (Skip SSO)" button — it is gated on `import.meta.env.DEV` | ⬜ |
+| Google sign-in (needs a Firebase project) | 1. Set `FIREBASE_PROJECT_ID`, `ALLOWED_EMAIL_DOMAINS` and the `VITE_FIREBASE_*` build-time values<br>2. Unset `AUTH_MODE`/`VITE_AUTH_MODE`<br>3. Click **Sign in with Google** | Google account chooser, then the dashboard | ⬜ |
+| Domain allowlist (needs a Firebase project) | Sign in with a Google account outside `ALLOWED_EMAIL_DOMAINS` | Rejected — a valid ID token is not enough | ⬜ |
+| Unprovisioned account (needs a Firebase project) | Sign in with an allowed-domain account that has no `users` row and `AUTH_AUTO_PROVISION` unset | Rejected — the token proves identity only; access comes from PostgreSQL | ⬜ |
 
 ### 1.2 Authorization (RBAC)
+
+Roles and permissions come from the `users` row and the permission tables in
+PostgreSQL, never from the token. Under `AUTH_MODE=demo` the frontend's
+`hasPermission()` returns true for every check and every request arrives as the
+seeded admin, so these three rows require a real Firebase sign-in with
+separately provisioned accounts.
 
 | Test | Steps | Expected Result | Status |
 |------|-------|-----------------|--------|
@@ -319,20 +337,25 @@ After completing QA testing:
 ## Quick Start Test Commands
 
 ```bash
-# Start all services
-docker-compose up -d
+# Start everything (infrastructure in Docker, services and frontend on the host)
+./scripts/start-demo.sh
 
-# Check service health
-docker-compose ps
+# Infrastructure containers (postgres, minio)
+docker compose ps
 
-# View logs
-docker-compose logs -f controls
+# Service logs — one file per service
+tail -f .demo/logs/controls.log
 
-# Run database seed (demo data)
-cd services/controls && npm run seed
+# Load demo data (start-demo.sh already does this on the first run)
+curl -X POST http://localhost:3001/api/seed/load-demo
 
-# Stop all services
-docker-compose down
+# Reset all organization data before reloading
+curl -X POST http://localhost:3001/api/seed/reset \
+  -H "Content-Type: application/json" \
+  -d '{"confirmationPhrase": "DELETE ALL DATA"}'
+
+# Stop everything (add --clean to drop the volumes)
+./scripts/stop-demo.sh
 ```
 
 ---

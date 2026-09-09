@@ -23,13 +23,17 @@ export default defineConfig({
   reporter: [
     ['html', { outputFolder: 'playwright-report' }],
     ['list'],
-    ...(process.env.CI ? [['github' as const]] : []),
+    ...(process.env.CI ? [['github'] as const] : []),
   ],
   
   /* Shared settings for all the projects below */
   use: {
-    /* Base URL to use in actions like `await page.goto('/')` */
-    baseURL: process.env.E2E_BASE_URL || 'http://localhost:5173',
+    /* Base URL to use in actions like `await page.goto('/')`.
+     * The vite dev server is pinned to port 3000 (vite.config.ts `server.port`),
+     * and scripts/start-demo.sh serves the frontend on 127.0.0.1:3000 with
+     * --strictPort. Use the literal loopback address rather than `localhost` so
+     * this does not depend on how the host resolves IPv6. */
+    baseURL: process.env.E2E_BASE_URL || 'http://127.0.0.1:3000',
 
     /* Collect trace when retrying the failed test */
     trace: 'on-first-retry',
@@ -91,10 +95,13 @@ export default defineConfig({
     },
   ],
 
-  /* Run your local dev server before starting the tests */
+  /* Run your local dev server before starting the tests.
+   * VITE_AUTH_MODE=demo is required: the "Dev Login (Skip SSO)" button that
+   * e2e/auth.setup.ts clicks only renders in dev mode under that flag. */
   webServer: process.env.CI ? undefined : {
     command: 'npm run dev',
-    url: 'http://localhost:5173',
+    url: 'http://127.0.0.1:3000',
+    env: { VITE_AUTH_MODE: process.env.VITE_AUTH_MODE || 'demo' },
     reuseExistingServer: !process.env.CI,
     timeout: 120 * 1000,
   },

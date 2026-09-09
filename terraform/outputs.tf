@@ -39,9 +39,9 @@ output "deployment_instructions" {
     Next steps:
     1. Point your domain to the load balancer: ${module.alb.dns_name}
     2. Access the application at: ${var.enable_https ? "https" : "http"}://${module.alb.dns_name}
-    3. Configure Keycloak with the provided endpoints
-    4. Run database migrations (see docs/deployment.md)
-    5. Create your first organization and admin user
+    3. Set firebase_project_id and allowed_email_domains, and build the frontend image with the VITE_FIREBASE_* build args
+    4. Apply the database schema (npm run db:push)
+    5. Create the first organization and admin user - see docs/DEPLOYMENT-RUNBOOK.md
 
     For detailed post-deployment steps, see: docs/post-deployment.md
   EOT

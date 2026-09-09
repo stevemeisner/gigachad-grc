@@ -20,10 +20,10 @@ Use this checklist to ensure a successful production deployment of GigaChad GRC.
 
 - [ ] **Domain purchased** and registered
 - [ ] **DNS A records** configured:
-  - [ ] `grc.example.com` → Server IP
-  - [ ] `auth.grc.example.com` → Server IP
-  - [ ] `storage.grc.example.com` → Server IP
-  - [ ] `console.storage.grc.example.com` → Server IP
+  - [ ] `grc.example.com` → Server IP (the application; `APP_DOMAIN`)
+  - [ ] `storage.grc.example.com` → Server IP (MinIO S3 API)
+  - No `auth.` record: sign-in is Firebase Authentication, hosted by Google
+  - No `console.storage.` record: the MinIO console is not routed
 - [ ] **DNS propagation verified** (nslookup/dig)
 - [ ] **TTL lowered** (24 hours before deployment)
 
@@ -52,18 +52,20 @@ Use this checklist to ensure a successful production deployment of GigaChad GRC.
 ### Phase 1: Environment Setup (30 minutes)
 
 - [ ] **Repository cloned** to `/opt/gigachad-grc`
-- [ ] **Environment file created** from `.env.example.prod`
-- [ ] **All REPLACE_WITH_* values updated** in `.env.prod`
+- [ ] **Environment file created** from `deploy/env.example` (`cp deploy/env.example .env.prod`)
+- [ ] **All CHANGE_ME values updated** in `.env.prod`
 - [ ] **Domain names updated** in `.env.prod`
 - [ ] **ACME email configured** for Let's Encrypt
 - [ ] **File permissions set** (`chmod 600 .env.prod`)
 - [ ] **.env.prod added to .gitignore**
 - [ ] **Configuration validated** (`docker compose config`)
+- [ ] **Preflight passed** (`./deploy/preflight-check.sh`)
+- [ ] **Production validation passed** (`npm run validate:production`)
 
 ### Phase 2: Security Configuration (15 minutes)
 
 - [ ] **PostgreSQL password** set (32+ characters)
-- [ ] **Keycloak admin password** set (32+ characters)
+- [ ] **`NODE_ENV=production`** set and **`AUTH_MODE` left unset** (the auth guard refuses to start with `AUTH_MODE=demo` under production)
 - [ ] **MinIO credentials** set (20+ characters)
 - [ ] **JWT_SECRET** generated (64 characters)
 - [ ] **SESSION_SECRET** generated (64 characters)
@@ -93,34 +95,32 @@ Use this checklist to ensure a successful production deployment of GigaChad GRC.
 
 ### Phase 5: Service Configuration (30 minutes)
 
-#### Keycloak
+#### Authentication (Firebase)
 
-- [ ] **Admin console accessible** at `https://auth.your-domain.com`
-- [ ] **Admin login working** with configured credentials
-- [ ] **Realm imported** or created (`grc`)
-- [ ] **Frontend URL configured**
-- [ ] **Clients created** for all services
-- [ ] **Client secrets** generated and documented
-- [ ] **User federation configured** (if using LDAP/AD)
-- [ ] **Test user created**
-- [ ] **Authentication flow tested**
+- [ ] **Firebase project created**; `FIREBASE_PROJECT_ID` set in `.env.prod`
+- [ ] **Google sign-in provider enabled** (no other provider is accepted)
+- [ ] **Authorized domains** include the production host
+- [ ] **Web app registered**; `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID` set **before** the frontend image is built
+- [ ] **`VITE_FIREBASE_PROJECT_ID` equals `FIREBASE_PROJECT_ID`**
+- [ ] **`ALLOWED_EMAIL_DOMAINS`** restricted to the permitted email domains
+- [ ] **`AUTH_AUTO_PROVISION`** decided (`false` means an admin must provision each user)
+- [ ] **First administrator `users` row created** (nothing creates it for you)
+- [ ] **2-Step Verification enforced** on the Google accounts that can sign in
+- [ ] **Sign-in flow tested end to end** with a real Google account
 
 #### MinIO
 
-- [ ] **Console accessible** at `https://console.storage.your-domain.com`
-- [ ] **Admin login working**
-- [ ] **Buckets created**:
-  - [ ] `grc-evidence-prod`
-  - [ ] `grc-backups-prod`
-- [ ] **Bucket policies configured**
-- [ ] **Access keys created** for applications
+- [ ] **Console left disabled** (`MINIO_BROWSER=off`, no Traefik router) - reach it via SSH tunnel to container port 9001 only when needed
+- [ ] **Bucket created**, named by `MINIO_BUCKET` / `S3_BUCKET` (default `grc-storage`)
+- [ ] **Bucket kept private** (the application issues presigned URLs)
+- [ ] **S3 API reachable** at `https://storage.<APP_DOMAIN>`
 - [ ] **File upload tested**
 - [ ] **File download tested**
 
 #### PostgreSQL
 
 - [ ] **Database accessible** from services
-- [ ] **Migrations run** successfully
+- [ ] **Migrations run** successfully (`./deploy/db-migrate.sh migrate`)
 - [ ] **Database seeding completed** (if applicable)
 - [ ] **Connection pool configured**
 - [ ] **Query performance acceptable**
@@ -155,17 +155,16 @@ Use this checklist to ensure a successful production deployment of GigaChad GRC.
 - [ ] **Log rotation** verified
 - [ ] **Disk space monitoring** setup
 - [ ] **Performance metrics** baseline established
-- [ ] **Error tracking** configured (Sentry, optional)
+- [ ] **Error tracking**: none is wired into the services - error visibility comes from container logs and the audit log
 
 ### Phase 8: Testing & Validation (30 minutes)
 
 #### Functional Testing
 
-- [ ] **User registration** working
-- [ ] **User login** working
-- [ ] **Password reset** working
-- [ ] **2FA** working (if enabled)
-- [ ] **SSO** working (if configured)
+- [ ] **Google sign-in** working end to end (there is no self-registration and no password reset - Google owns the credential)
+- [ ] **Access denial verified**: a Google account outside `ALLOWED_EMAIL_DOMAINS`, and one with no `users` row, are both rejected
+- [ ] **2-Step Verification** enforced on the Google accounts (in Google Workspace, not here)
+- [ ] **Role/permission enforcement** verified: a `viewer` cannot perform an `admin` action
 - [ ] **API endpoints** responding correctly
 - [ ] **File uploads/downloads** working
 - [ ] **Search functionality** working
@@ -203,24 +202,22 @@ Use this checklist to ensure a successful production deployment of GigaChad GRC.
 
 #### Rate Limiting
 
-- [ ] **Rate limiting enabled** (`RATE_LIMIT_ENABLED=true`)
-- [ ] **Rate limits configured** appropriately:
-  - [ ] `RATE_LIMIT_MAX=100` (requests per window)
-  - [ ] `RATE_LIMIT_WINDOW_MS=60000` (1 minute window)
-- [ ] **Rate limit headers** being returned (X-RateLimit-*)
+- [ ] **Application rate limiting** active on the controls service (`ThrottlerModule`, tiered: 5/second, 30/10 seconds)
+- [ ] **Edge rate limiting** active on the gateway router (`gateway-ratelimit`: 200 average, 100 burst)
+- [ ] **`RATE_LIMIT_ENABLED`** left unset or `true` (the production-readiness check treats anything other than `false` as enabled)
 - [ ] **Health endpoints excluded** from rate limiting
 
 #### Caching
 
-- [ ] **Cache service active** and responding
-- [ ] **Cache TTL configured** appropriately (default: 5 minutes)
+- [ ] **In-process cache active** (`services/shared/src/cache`; there is no Redis in this deployment)
+- [ ] **Cache TTL** appropriate (default 300 seconds)
 - [ ] **Cache invalidation tested** on data updates
-- [ ] **Cache size limits** configured (maxSize: 1000)
+- [ ] **Cache size limit** configured (default `maxSize: 1000` entries per service instance)
 
 #### Security Enhancements
 
 - [ ] **Response compression enabled** (gzip)
-- [ ] **Helmet security headers** active
+- [ ] **Helmet security headers** active on the controls service (`services/controls/src/main.ts`)
 - [ ] **CORS properly configured** for production domain
 - [ ] **Global exception filter** providing safe error responses
 - [ ] **No stack traces** exposed in production errors
@@ -385,5 +382,6 @@ Use this space to document any deployment-specific notes, issues encountered, or
 ---
 
 **For assistance, refer to:**
+- [docs/DEPLOYMENT-RUNBOOK.md](../docs/DEPLOYMENT-RUNBOOK.md) - Authoritative step-by-step runbook
 - [deploy/README.md](./README.md) - Comprehensive deployment guide
 - [deploy/QUICKSTART.md](./QUICKSTART.md) - Quick reference guide

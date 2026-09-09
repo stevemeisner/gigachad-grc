@@ -13,28 +13,41 @@ git clone https://github.com/yourusername/gigachad-grc.git
 cd gigachad-grc
 
 # Configure environment
-cp .env.example.prod .env.prod
-nano .env.prod  # Update all REPLACE_WITH_* values
+cp deploy/env.example .env.prod
+nano .env.prod  # Update all CHANGE_ME values
 chmod 600 .env.prod
 
 # Update domain settings
 # - APP_DOMAIN=your-domain.com
 # - ACME_EMAIL=admin@your-domain.com
-# - KEYCLOAK_HOSTNAME=auth.your-domain.com
+# - MINIO_DOMAIN=storage.your-domain.com
+#
+# Set the authentication values (Firebase, Google sign-in only):
+# - FIREBASE_PROJECT_ID, ALLOWED_EMAIL_DOMAINS
+# - VITE_FIREBASE_API_KEY, VITE_FIREBASE_AUTH_DOMAIN, VITE_FIREBASE_PROJECT_ID
+#   (build-time: the frontend image must be rebuilt if these change)
+# - leave AUTH_MODE unset
 ```
 
 ### 2. Generate Secrets (2 minutes)
 
 ```bash
-# Generate all secrets at once
-openssl rand -base64 32 | tee -a /tmp/secrets.txt
-openssl rand -base64 32 | tee -a /tmp/secrets.txt
-openssl rand -base64 32 | tee -a /tmp/secrets.txt
-openssl rand -base64 20 | tee -a /tmp/secrets.txt
-openssl rand -base64 64 | tee -a /tmp/secrets.txt
-openssl rand -hex 32 | tee -a /tmp/secrets.txt
+# Generate the secrets .env.prod needs
+echo "POSTGRES_PASSWORD=$(openssl rand -base64 32)"  | tee -a /tmp/secrets.txt
+echo "MINIO_ROOT_PASSWORD=$(openssl rand -base64 20)" | tee -a /tmp/secrets.txt
+echo "JWT_SECRET=$(openssl rand -base64 64)"          | tee -a /tmp/secrets.txt
+echo "SESSION_SECRET=$(openssl rand -base64 64)"      | tee -a /tmp/secrets.txt
+echo "ENCRYPTION_KEY=$(openssl rand -hex 32)"         | tee -a /tmp/secrets.txt
 
-# Copy secrets from /tmp/secrets.txt to .env.prod
+# Copy them into .env.prod, then delete the scratch file
+shred -u /tmp/secrets.txt 2>/dev/null || rm -f /tmp/secrets.txt
+```
+
+### 2b. Validate Before Deploying (1 minute)
+
+```bash
+./deploy/preflight-check.sh
+npm run validate:production
 ```
 
 ### 3. Deploy (5-10 minutes)
@@ -53,16 +66,20 @@ docker compose -f docker-compose.prod.yml logs -f
 ### 4. Post-Deployment (5 minutes)
 
 ```bash
-# Run database migrations
-docker compose -f docker-compose.prod.yml exec controls npm run migrate
+# Apply the database schema
+./deploy/db-migrate.sh migrate
 
-# Configure Keycloak
-# Visit: https://auth.your-domain.com
-# Login with KEYCLOAK_ADMIN credentials
+# Create the first administrator
+# Nothing creates it for you: signing in with Google proves identity but
+# grants nothing until a users row exists. See docs/DEPLOYMENT-RUNBOOK.md.
 
-# Configure MinIO
-# Visit: https://console.storage.your-domain.com
-# Login with MINIO_ROOT_USER credentials
+# Verify the edge is up
+curl -fsS https://your-domain.com/healthz          # gateway liveness
+curl -fsS https://your-domain.com/api/system/health # controls health
+
+# MinIO console is disabled and unrouted by design (MINIO_BROWSER=off,
+# no Traefik router). To use it: set MINIO_BROWSER=on, restart minio, and
+# SSH-tunnel to the container's port 9001 - see deploy/README.md.
 ```
 
 ## Daily Operations
@@ -246,9 +263,13 @@ find /var/log/ -name "grc-*.log" -mtime +30 -delete
 ## Monitoring Endpoints
 
 - **Application**: https://your-domain.com
-- **Keycloak**: https://auth.your-domain.com
-- **MinIO Console**: https://console.storage.your-domain.com
-- **Health Check**: https://your-domain.com/api/health
+- **S3 API (MinIO)**: https://storage.your-domain.com
+- **Gateway liveness**: https://your-domain.com/healthz
+- **Application health**: https://your-domain.com/api/system/health
+- **Per-service health** (internal only): `GET /health` on 3001, 3002, 3004, 3005, 3006, 3007
+
+Sign-in is Firebase Authentication (Google), hosted by Google - there is no
+auth host of your own. The MinIO console is disabled and unrouted by default.
 
 ## Useful Commands
 

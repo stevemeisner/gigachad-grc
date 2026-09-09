@@ -54,11 +54,23 @@ git remote add upstream https://github.com/ORIGINAL_ORG/gigachad-grc.git
 
 ## Development Setup
 
+The fastest path is the demo script, which does all of the below for you
+(infrastructure, `.env`, build, migrate, seed, six services, frontend):
+
+```bash
+./scripts/start-demo.sh        # npm run demo
+./scripts/stop-demo.sh         # npm run demo:stop
+```
+
+It runs with `AUTH_MODE=demo` / `VITE_AUTH_MODE=demo`, so you do not need
+Firebase credentials to work locally. The steps below are the manual
+equivalent.
+
 ### 1. Start Infrastructure Services
 
 ```bash
-# Start PostgreSQL, Keycloak, and MinIO
-docker-compose up -d postgres keycloak minio
+# Start PostgreSQL and MinIO (the only infrastructure containers)
+docker-compose up -d postgres minio
 ```
 
 Wait for services to be healthy:
@@ -94,11 +106,15 @@ cd frontend && npm install && cd ..
 ### 3. Set Up Environment
 
 ```bash
-# Copy environment template
-cp env.example .env
+# Copy the development template (sets NODE_ENV=development,
+# AUTH_MODE=demo and VITE_AUTH_MODE=demo)
+cp env.development .env
 
 # The defaults work for local development
 ```
+
+Do **not** use `deploy/env.example` locally: it sets `NODE_ENV=production`,
+and the auth guard refuses to start in demo mode under production.
 
 ### 4. Run Database Migrations
 
@@ -110,10 +126,11 @@ cd ../..
 
 ### 5. Seed Demo Data (Optional)
 
+With the controls service running:
+
 ```bash
-cd services/controls
-npm run seed
-cd ../..
+curl -X POST http://localhost:3001/api/seed/load-demo
+curl http://localhost:3001/api/seed/status
 ```
 
 ### 6. Start Development Servers
@@ -136,11 +153,13 @@ npm run dev
 
 ### 7. Access the Application
 
-- **Frontend**: http://localhost:5173
+- **Frontend**: http://localhost:3000
 - **Controls API**: http://localhost:3001/api/docs (Swagger)
 - **Frameworks API**: http://localhost:3002/api/docs (Swagger)
-- **Keycloak Admin**: http://localhost:8080 (admin/admin)
 - **MinIO Console**: http://localhost:9001 (minioadmin/minioadminpassword)
+
+Sign-in is Firebase Authentication (Google) in real deployments; locally the
+demo bypass logs you in as the seeded demo user.
 
 ### Development with Docker (Alternative)
 

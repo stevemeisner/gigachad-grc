@@ -27,9 +27,8 @@
 
 | Environment | Base URL |
 |-------------|----------|
-| Development | `http://localhost:80/api` |
-| Staging | `https://staging.grc.example.com/api` |
-| Production | `https://grc.example.com/api` |
+| Local development | `http://localhost:3000/api` — the Vite dev server proxies each `/api/*` prefix to the owning service |
+| Production | `https://grc.example.com/api` — the nginx gateway (`gateway/nginx.conf`) fans the same 53 prefixes out |
 
 ### API Versioning
 
@@ -52,63 +51,67 @@ Currently, the API is unversioned. Future versions will use URL path versioning:
 
 ## Authentication
 
-### OAuth 2.0 / OpenID Connect
+### Firebase ID Tokens
 
-GigaChad GRC uses Keycloak for authentication. All API requests must include a valid JWT token.
+Every API request must carry a Firebase ID token obtained by signing in with
+Google. The token proves **identity only** — role, permissions and
+organization are read from PostgreSQL on every request.
 
 #### Request Headers
 
 ```http
-Authorization: Bearer <access_token>
-x-user-id: <user-uuid>
-x-organization-id: <organization-uuid>
+Authorization: Bearer <Firebase ID token>
 Content-Type: application/json
 ```
 
-#### Obtaining Tokens
+That is the whole contract. Do **not** send `x-user-id` or
+`x-organization-id`: they are ignored. Identity is taken from the verified
+token and the caller's `users` row, so a client-supplied value cannot widen
+access.
 
-**Authorization Code Flow** (recommended for web apps):
+#### Obtaining a Token
 
-```bash
-# 1. Redirect user to Keycloak
-https://auth.grc.example.com/auth/realms/grc/protocol/openid-connect/auth?
-  response_type=code&
-  client_id=grc-frontend&
-  redirect_uri=https://grc.example.com/callback&
-  scope=openid profile email
+Tokens come from the Firebase JavaScript SDK in the browser, not from an
+endpoint on this API:
 
-# 2. Exchange code for tokens
-POST https://auth.grc.example.com/auth/realms/grc/protocol/openid-connect/token
-Content-Type: application/x-www-form-urlencoded
+```ts
+import { getAuth, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
 
-grant_type=authorization_code&
-code=<authorization_code>&
-client_id=grc-frontend&
-redirect_uri=https://grc.example.com/callback
+const auth = getAuth();
+const { user } = await signInWithPopup(auth, new GoogleAuthProvider());
+const idToken = await user.getIdToken();   // send this as the bearer token
 ```
 
-**Client Credentials Flow** (for service-to-service):
+Refresh is automatic: the SDK renews the ID token roughly hourly and
+`onIdTokenChanged` delivers the new one. There is no refresh endpoint to call
+and nothing to persist.
 
-```bash
-POST https://auth.grc.example.com/auth/realms/grc/protocol/openid-connect/token
-Content-Type: application/x-www-form-urlencoded
+#### What the server checks
 
-grant_type=client_credentials&
-client_id=<service-client-id>&
-client_secret=<service-client-secret>&
-scope=openid
-```
+| Check | Failure |
+|-------|---------|
+| `RS256` signature against Google's JWKS | `401 Could not verify the token signing key.` |
+| Issuer `https://securetoken.google.com/<FIREBASE_PROJECT_ID>` and audience `<FIREBASE_PROJECT_ID>` | `401 Firebase ID token is invalid: ...` |
+| Not expired (60s clock tolerance) | `401 Firebase ID token has expired.` |
+| `email_verified === true` | `401 Token email address is not verified.` |
+| `firebase.sign_in_provider === 'google.com'` | `401 Sign-in provider "..." is not accepted.` |
+| Email domain in `ALLOWED_EMAIL_DOMAINS` | `403 Email domain "..." is not permitted to access this deployment.` |
+| A `users` row exists for the caller | `401 No account is provisioned for <email>.` |
+| That row's `status` is `active` | `403 This account is <status> and cannot be used to sign in.` |
 
-#### Token Refresh
+#### Service-to-service access
 
-```bash
-POST https://auth.grc.example.com/auth/realms/grc/protocol/openid-connect/token
-Content-Type: application/x-www-form-urlencoded
+There is currently **no non-interactive credential flow**. Every route is
+behind `FirebaseAuthGuard`, which only accepts a Firebase ID token issued to
+a human Google account. A machine caller must present a token obtained for a
+real account that has a provisioned `users` row.
 
-grant_type=refresh_token&
-refresh_token=<refresh_token>&
-client_id=grc-frontend
-```
+#### Local development
+
+With `AUTH_MODE=demo` on the backend the guard serves every request as the
+seeded demo administrator and **no `Authorization` header is required**. It
+hard-throws when `NODE_ENV=production`, so it can never be reached in a
+deployed environment.
 
 ---
 
@@ -2608,12 +2611,11 @@ function verifyWebhook(payload, signature, secret) {
 ```typescript
 import axios from 'axios';
 
+// The Firebase ID token is the only credential. Identity headers are ignored.
 const api = axios.create({
   baseURL: 'https://grc.example.com/api',
   headers: {
-    'Authorization': `Bearer ${token}`,
-    'x-user-id': userId,
-    'x-organization-id': orgId,
+    'Authorization': `Bearer ${idToken}`,
   },
 });
 
@@ -2637,21 +2639,19 @@ const risk = await api.post('/risks', {
 import requests
 
 class GRCClient:
-    def __init__(self, base_url, token, user_id, org_id):
+    def __init__(self, base_url, id_token):
         self.base_url = base_url
-        self.headers = {
-            'Authorization': f'Bearer {token}',
-            'x-user-id': user_id,
-            'x-organization-id': org_id,
-        }
-    
+        # The Firebase ID token is the only credential; the server resolves
+        # the user and organization from it.
+        self.headers = {'Authorization': f'Bearer {id_token}'}
+
     def list_controls(self, **params):
         return requests.get(
             f'{self.base_url}/controls',
             headers=self.headers,
             params=params
         ).json()
-    
+
     def create_risk(self, data):
         return requests.post(
             f'{self.base_url}/risks',
@@ -2660,12 +2660,7 @@ class GRCClient:
         ).json()
 
 # Usage
-client = GRCClient(
-    'https://grc.example.com/api',
-    token='...',
-    user_id='...',
-    org_id='...'
-)
+client = GRCClient('https://grc.example.com/api', id_token='...')
 controls = client.list_controls(status='implemented')
 ```
 

@@ -8,13 +8,16 @@ This guide provides comprehensive instructions for deploying GigaChad GRC in a p
 - [Server Requirements](#server-requirements)
 - [Installation](#installation)
 - [SSL/TLS Configuration](#ssltls-configuration)
-- [Environment Configuration](#environment-configuration)
 - [Deployment](#deployment)
+- [Configure Firebase Authentication](#configure-firebase-authentication)
+- [Configure MinIO](#configure-minio)
 - [Backup & Recovery](#backup--recovery)
 - [Monitoring & Logging](#monitoring--logging)
 - [Maintenance](#maintenance)
 - [Troubleshooting](#troubleshooting)
 - [Security Best Practices](#security-best-practices)
+- [Production Checklist](#production-checklist)
+- [Support](#support)
 
 ## Prerequisites
 
@@ -47,10 +50,12 @@ This guide provides comprehensive instructions for deploying GigaChad GRC in a p
 
 - A registered domain name
 - DNS A records configured:
-  - `grc.example.com` → Server IP
-  - `auth.grc.example.com` → Server IP
-  - `storage.grc.example.com` → Server IP
-  - `console.storage.grc.example.com` → Server IP
+  - `grc.example.com` → Server IP (the application; `APP_DOMAIN`)
+  - `storage.grc.example.com` → Server IP (MinIO S3 API)
+
+  There is no `auth.` record: sign-in is handled by Firebase Authentication,
+  hosted by Google. There is no `console.storage.` record either - the MinIO
+  console is not routed through Traefik (see [Configure MinIO](#configure-minio)).
 
 ### Firewall Configuration
 
@@ -123,14 +128,13 @@ git checkout v1.0.0  # or your desired version
 
 ```bash
 # Copy production environment template
-cp .env.example.prod .env.prod
+cp deploy/env.example .env.prod
 
 # Generate secure secrets
 openssl rand -base64 64 > /tmp/jwt_secret
 openssl rand -base64 64 > /tmp/session_secret
 openssl rand -hex 32 > /tmp/encryption_key
 openssl rand -base64 32 > /tmp/postgres_password
-openssl rand -base64 32 > /tmp/keycloak_password
 openssl rand -base64 20 > /tmp/minio_password
 
 # Edit .env.prod with your actual values
@@ -151,27 +155,41 @@ Edit `.env.prod` and update the following critical values:
 # Domain configuration
 APP_DOMAIN=your-domain.com
 ACME_EMAIL=admin@your-domain.com
-KEYCLOAK_HOSTNAME=auth.your-domain.com
+MINIO_DOMAIN=storage.your-domain.com
 
 # Database password (use generated value)
 POSTGRES_PASSWORD=$(cat /tmp/postgres_password)
 
-# Keycloak admin password (use generated value)
-KEYCLOAK_ADMIN_PASSWORD=$(cat /tmp/keycloak_password)
-
 # MinIO credentials (use generated value)
 MINIO_ROOT_PASSWORD=$(cat /tmp/minio_password)
+MINIO_BROWSER=off
 
 # JWT & Session secrets (use generated values)
 JWT_SECRET=$(cat /tmp/jwt_secret)
 SESSION_SECRET=$(cat /tmp/session_secret)
 ENCRYPTION_KEY=$(cat /tmp/encryption_key)
 
+# Authentication - Firebase (Google sign-in only).
+# The token proves identity; role, permissions and organization are read
+# from PostgreSQL on every request.
+FIREBASE_PROJECT_ID=your-firebase-project
+ALLOWED_EMAIL_DOMAINS=your-company.com
+AUTH_AUTO_PROVISION=false
+# AUTH_MODE must stay unset in production.
+
+# Frontend Firebase config - BUILD-TIME values compiled into the bundle.
+# Changing one requires rebuilding the frontend image.
+# The Web API key is a public client identifier, not a secret.
+VITE_FIREBASE_API_KEY=your-web-api-key
+VITE_FIREBASE_AUTH_DOMAIN=your-firebase-project.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=your-firebase-project
+
 # SMTP configuration (if using email notifications)
+EMAIL_PROVIDER=smtp
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 SMTP_USER=your-email@gmail.com
-SMTP_PASSWORD=your-app-password
+SMTP_PASS=your-app-password
 ```
 
 ## SSL/TLS Configuration
@@ -247,52 +265,75 @@ docker compose -f docker-compose.prod.yml logs -f
 ### Initial Database Setup
 
 ```bash
-# Wait for PostgreSQL to be ready
-docker compose -f docker-compose.prod.yml --env-file .env.prod exec postgres pg_isready -U grc_prod_user
+# Wait for PostgreSQL to be ready (user must match POSTGRES_USER in .env.prod)
+docker compose -f docker-compose.prod.yml --env-file .env.prod exec postgres pg_isready -U grc
 
-# Run database migrations
-docker compose -f docker-compose.prod.yml --env-file .env.prod exec controls npm run migrate
-
-# Create initial admin user (if applicable)
-docker compose -f docker-compose.prod.yml --env-file .env.prod exec controls npm run seed:admin
+# Apply the database schema
+./deploy/db-migrate.sh migrate
 ```
 
-### Configure Keycloak
+**Creating the first administrator.** Nothing creates it for you: there is no
+invite email, no self-registration and no first-run wizard. Signing in with
+Google proves who you are, it does not grant access - until a `users` row
+exists, every request is rejected. Insert the first row by hand following
+[docs/DEPLOYMENT-RUNBOOK.md](../docs/DEPLOYMENT-RUNBOOK.md).
 
-1. Access Keycloak admin console:
-   - URL: `https://auth.your-domain.com`
-   - Username: Value from `KEYCLOAK_ADMIN`
-   - Password: Value from `KEYCLOAK_ADMIN_PASSWORD`
+### Configure Firebase Authentication
 
-2. Create a new realm (if not imported):
-   - Name: `grc`
-   - Display name: `GigaChad GRC`
+There is no identity server to install; Firebase Authentication is a hosted
+Google service.
 
-3. Configure realm settings:
-   - Go to Realm Settings > General
-   - Set frontend URL: `https://auth.your-domain.com/auth`
-   - Enable required features
+1. In the [Firebase console](https://console.firebase.google.com), create a
+   project (or reuse one) and note its **Project ID** - this is
+   `FIREBASE_PROJECT_ID`.
 
-4. Create clients for each service
+2. **Authentication → Sign-in method**: enable the **Google** provider. No
+   other provider is accepted; the guard rejects any token whose
+   `sign_in_provider` is not `google.com`.
 
-5. Set up user federation (LDAP/Active Directory) if needed
+3. **Authentication → Settings → Authorized domains**: add your production
+   host (`your-domain.com`). Sign-in from any other origin will fail.
+
+4. **Project settings → General → Your apps**: register a **Web** app and
+   copy its config into `.env.prod` as `VITE_FIREBASE_API_KEY`,
+   `VITE_FIREBASE_AUTH_DOMAIN` and `VITE_FIREBASE_PROJECT_ID`. These are
+   build-time values - the frontend image must be rebuilt after a change.
+   The Web API key is a public client identifier, not a secret.
+
+5. Set `ALLOWED_EMAIL_DOMAINS` to the email domains permitted to sign in. A
+   Firebase ID token carries no hosted-domain claim, so this allowlist plus
+   the requirement that a `users` row exist are the only access controls.
+
+6. Leave `AUTH_MODE` unset. Enforce MFA and password policy on the Google
+   accounts themselves, in Google Workspace.
 
 ### Configure MinIO
 
-1. Access MinIO console:
-   - URL: `https://console.storage.your-domain.com`
-   - Username: Value from `MINIO_ROOT_USER`
-   - Password: Value from `MINIO_ROOT_PASSWORD`
+The MinIO **console is disabled and not routed** - it is an object-store
+admin UI with no business on the public internet. `MINIO_BROWSER` defaults
+to `off` and there is no Traefik router for it. Only the S3 API is published,
+on `https://storage.<APP_DOMAIN>`, because the browser fetches evidence from
+there through presigned URLs.
 
-2. Create buckets:
-   - `grc-evidence-prod`
-   - `grc-backups-prod`
+To reach the console deliberately:
 
-3. Set bucket policies:
-   - Private by default
-   - Configure access policies as needed
+```bash
+# 1. Set MINIO_BROWSER=on in .env.prod, then restart just minio
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d minio
 
-4. Create access keys for applications
+# 2. From your workstation, tunnel to the container's console port
+#    (9001 is not published on the host)
+ssh -L 9001:$(ssh HOST "docker inspect -f \
+  '{{.NetworkSettings.Networks.grc-dmz.IPAddress}}' grc-minio"):9001 HOST
+
+# 3. Open http://localhost:9001 and log in with MINIO_ROOT_USER /
+#    MINIO_ROOT_PASSWORD. Set MINIO_BROWSER back to off when finished.
+```
+
+The application needs one bucket, named by `MINIO_BUCKET` (or `S3_BUCKET`),
+defaulting to `grc-storage`. Create it with the console above or with the
+`mc` client, keep it private, and let the application issue presigned URLs
+rather than making objects public.
 
 ## Backup & Recovery
 
@@ -402,33 +443,35 @@ Log rotation is configured automatically:
 
 ### Metrics & Monitoring
 
-Configure external monitoring (recommended):
+An optional Prometheus/Grafana/Loki/Alertmanager stack ships with the repo:
 
-1. **Prometheus** - Metrics collection
-2. **Grafana** - Visualization
-3. **AlertManager** - Alerting
-4. **ELK Stack** - Log aggregation
-
-Example Prometheus configuration:
-
-```yaml
-scrape_configs:
-  - job_name: 'grc-services'
-    static_configs:
-      - targets:
-        - 'grc.example.com:9090'
+```bash
+docker compose -f docker-compose.yml \
+  -f deploy/monitoring/docker-compose.monitoring.yml up -d
 ```
+
+Its scrape configuration is `deploy/monitoring/prometheus.yml` and its alert
+rules are `deploy/monitoring/alerts.yml`. Note what actually exposes metrics
+today: only the **controls** service registers a Prometheus endpoint
+(`controls:3001/metrics`, exposing `collectors_runs_total`,
+`scheduled_notifications_runs_total` and `mcp_workflow_executions_total`),
+plus MinIO, cAdvisor and node-exporter. The other five services expose
+`GET /health` (JSON), which is a health endpoint, not a metrics endpoint -
+scraping it would report the target as permanently down. Jobs for them are
+present but commented out in `prometheus.yml`, each with the reason.
+
+Nothing is exposed on the public host for monitoring: `docker-compose.prod.yml`
+publishes only Traefik's 80 and 443, so reach Prometheus/Grafana over an SSH
+tunnel.
 
 ### Application Performance Monitoring (APM)
 
-Configure Sentry in `.env.prod`:
-
-```bash
-SENTRY_ENABLED=true
-SENTRY_DSN=your-sentry-dsn
-SENTRY_ENVIRONMENT=production
-SENTRY_TRACES_SAMPLE_RATE=0.1
-```
+No APM/error-tracking SDK is wired into the services: there is no Sentry (or
+equivalent) initialisation in any `main.ts`, and no `SENTRY_*` variable is
+read anywhere in the application. Error visibility today comes from the
+JSON container logs above and the audit log. (The *integrations catalogue*
+includes a Sentry connector, but that collects compliance evidence from a
+customer's Sentry account - it does not instrument this platform.)
 
 ## Maintenance
 
@@ -528,7 +571,7 @@ docker compose -f docker-compose.prod.yml logs traefik
 
 # Verify DNS records
 dig grc.example.com
-dig auth.grc.example.com
+dig storage.grc.example.com
 
 # Check certificate
 openssl s_client -connect grc.example.com:443 -servername grc.example.com
@@ -621,8 +664,12 @@ git pull
 ### 5. Access Control
 
 - Use SSH keys (disable password authentication)
-- Implement 2FA for admin accounts
-- Follow principle of least privilege
+- Enforce 2-Step Verification on the Google accounts that can sign in
+  (there is no application-managed password to protect)
+- Keep `ALLOWED_EMAIL_DOMAINS` as tight as possible, and leave
+  `AUTH_AUTO_PROVISION=false` so an administrator must provision each user
+- Follow principle of least privilege - use permission groups and per-user
+  overrides rather than granting `admin`
 - Regular security audits
 
 ### 6. Data Protection
@@ -644,6 +691,9 @@ git pull
 Before going live:
 
 - [ ] All secrets generated and configured
+- [ ] `FIREBASE_PROJECT_ID`, `ALLOWED_EMAIL_DOMAINS` and the `VITE_FIREBASE_*` build values set
+- [ ] `AUTH_MODE` unset and `NODE_ENV=production` (verified by `./deploy/preflight-check.sh`)
+- [ ] First administrator `users` row created and sign-in verified end to end
 - [ ] SSL certificates working
 - [ ] DNS records configured
 - [ ] Firewall rules applied

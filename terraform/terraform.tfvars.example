@@ -46,8 +46,16 @@ ecs_task_memory          = 2048
 container_registry = "123456789012.dkr.ecr.us-east-1.amazonaws.com/gigachad-grc"
 image_tag          = "1.0.0"
 
-# Keycloak Configuration
-keycloak_url           = "https://auth.yourdomain.com"
-keycloak_realm         = "grc"
-keycloak_client_id     = "grc-platform"
-keycloak_client_secret = "YOUR_CLIENT_SECRET"  # Use AWS Secrets Manager in production!
+# Authentication (Firebase Authentication, Google sign-in only)
+# The token proves identity only; roles and organization come from PostgreSQL.
+firebase_project_id   = "your-firebase-project-id"
+allowed_email_domains = "yourcompany.com"
+
+# Leave auto-provisioning off unless you want a first Google sign-in from an
+# allowed domain to create the user row automatically. With it off, an
+# administrator must create the users row before anyone can use the app.
+auth_auto_provision = false
+auth_default_org_id = ""
+
+# Deliberately absent: AUTH_MODE. Its only valid production value is unset --
+# the auth guard refuses to boot with AUTH_MODE=demo when NODE_ENV=production.

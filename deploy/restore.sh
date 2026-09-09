@@ -276,11 +276,11 @@ restore_configurations() {
             || log_warning "Failed to restore traefik.yml"
     fi
 
-    # Restore Keycloak realm configuration
-    if [ -f "$RESTORE_DIR/configs/realm-export.json" ]; then
-        mkdir -p "${PROJECT_DIR}/auth"
-        cp "$RESTORE_DIR/configs/realm-export.json" "${PROJECT_DIR}/auth/" \
-            || log_warning "Failed to restore realm-export.json"
+    # Restore the nginx gateway routing configuration
+    if [ -f "$RESTORE_DIR/configs/nginx.conf" ]; then
+        mkdir -p "${PROJECT_DIR}/gateway"
+        cp "$RESTORE_DIR/configs/nginx.conf" "${PROJECT_DIR}/gateway/" \
+            || log_warning "Failed to restore nginx.conf"
     fi
 
     # Restore database init scripts
@@ -307,7 +307,6 @@ restore_volumes() {
     local volumes=(
         "gigachad-grc_postgres_data"
         "gigachad-grc_minio_data"
-        "gigachad-grc_keycloak_data"
         "gigachad-grc_traefik_letsencrypt"
     )
 

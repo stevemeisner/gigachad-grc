@@ -207,10 +207,13 @@ a name that does not point at it yet:
 dig +short grc.example.com
 ```
 
-If you intend to expose MinIO's own hostnames as well,
-`docker-compose.prod.yml` routes `storage.${APP_DOMAIN}` and
-`console.storage.${APP_DOMAIN}`; add those records too. For a first
-deployment you do not need them — evidence uploads go through the API.
+You do not need any MinIO DNS records. `docker-compose.prod.yml` routes only
+`storage.${APP_DOMAIN}` (the S3 API), and evidence uploads go through the API
+rather than the browser, so a first deployment needs nothing beyond the main
+hostname. MinIO's admin console is deliberately not published: `MINIO_BROWSER`
+defaults to `off` and no route exists for it. To reach it deliberately, tunnel
+to the container: `ssh -L 9001:localhost:9001 your-server` after temporarily
+setting `MINIO_BROWSER=on`.
 
 ### Clone the repository
 
@@ -289,9 +292,10 @@ enough and not left at a known weak default, and that `AUTH_MODE=demo` is not
 enabled in production. (It needs Node.js locally; run it on your laptop
 against the same file if the server has none.)
 
-> `deploy/preflight-check.sh` is **stale** — it still demands variables for the
-> identity server this project no longer uses, and fails on a file that has
-> been deleted. Use `npm run validate:production`.
+> Run both checks — they cover different ground. `npm run validate:production`
+> inspects the values in your `.env` (secrets present, no demo mode in
+> production, domains set). `./deploy/preflight-check.sh` inspects the machine
+> (Docker present and running, disk space, required ports free).
 
 ---
 
@@ -597,7 +601,7 @@ elsewhere. Test a restore before you need one.
 |---|---|
 | Any service | `docker compose -f docker-compose.prod.yml --env-file .env.prod logs -f <service>` |
 | Service names | `traefik`, `gateway`, `frontend`, `controls`, `frameworks`, `policies`, `tprm`, `trust`, `audit`, `postgres`, `minio`, `backup-scheduler` |
-| Traefik access logs | JSON in the `traefik_logs` volume (`/var/log/traefik/access.log`) |
+| Traefik access logs | stdout — `docker compose -f docker-compose.prod.yml logs traefik` (rotated at 20 MB × 5 files) |
 | Backup logs | Next to the archives: `backup-<timestamp>.log` |
 | In-app audit trail | **Settings → Audit Log** (stored in PostgreSQL, not in container logs) |
 

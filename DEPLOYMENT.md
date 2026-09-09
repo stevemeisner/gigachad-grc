@@ -61,14 +61,16 @@ git clone https://github.com/your-org/gigachad-grc.git
 cd gigachad-grc
 
 # Configure environment
-cp .env.example .env
-# Edit .env with your configuration
+cp deploy/env.example .env
+# Edit .env - at minimum POSTGRES_PASSWORD, MINIO_ROOT_PASSWORD, JWT_SECRET,
+# ENCRYPTION_KEY, FIREBASE_PROJECT_ID, ALLOWED_EMAIL_DOMAINS and the
+# VITE_FIREBASE_* values the frontend is built with
 
 # Start services
 docker-compose up -d
 
-# Run migrations
-docker-compose exec controls npm run prisma:migrate
+# Apply the database schema
+./deploy/db-migrate.sh migrate
 
 # Access at http://localhost
 ```
@@ -78,9 +80,9 @@ docker-compose exec controls npm run prisma:migrate
 ## Architecture Components
 
 ### Required Services
-1. **PostgreSQL** - Primary database
+1. **PostgreSQL** - Primary database (also the source of truth for roles and permissions)
 2. **MinIO/S3** - File storage
-3. **Keycloak** - Authentication and SSO
+3. **Firebase Authentication** - Google sign-in; a hosted Google service, nothing to run yourself
 
 ### Application Services
 1. **Controls Service** (Port 3001)
@@ -132,7 +134,7 @@ docker-compose exec controls npm run prisma:migrate
 - **80/HTTP** - Redirect to HTTPS (optional)
 
 ### Outbound Requirements
-- **443/HTTPS** - External APIs, Keycloak
+- **443/HTTPS** - External APIs and Firebase ID-token verification (`www.googleapis.com`, for Google's token-signing JWKS)
 - **25/587/SMTP** - Email notifications
 - **DNS/53** - Domain resolution
 
@@ -223,14 +225,17 @@ terraform apply
 ### 3. Deploy Database Schema
 ```bash
 # SSH to ECS task or use Session Manager
-npm run prisma:migrate
+./deploy/db-migrate.sh migrate
 ```
 
 ### 4. Configure DNS
 Point your domain to the load balancer DNS from Terraform outputs.
 
-### 5. Set Up Keycloak
-Create realm, client, and users according to docs/keycloak-setup.md.
+### 5. Set Up Firebase Authentication
+Create a Firebase project, enable the Google sign-in provider, register a Web
+app, add your production host to the authorized domains, then set
+`FIREBASE_PROJECT_ID`, `ALLOWED_EMAIL_DOMAINS` and the `VITE_FIREBASE_*`
+build-time values. See [docs/DEPLOYMENT-RUNBOOK.md](docs/DEPLOYMENT-RUNBOOK.md).
 
 ### 6. Validate Deployment
 Run smoke tests and monitor logs for errors.
@@ -261,10 +266,12 @@ Run smoke tests and monitor logs for errors.
 ## Getting Help
 
 ### Documentation
-- **Architecture**: docs/architecture.md
-- **API Reference**: docs/api/
-- **User Guide**: docs/user-guide.md
-- **Admin Guide**: docs/admin-guide.md
+- **Deployment runbook**: [docs/DEPLOYMENT-RUNBOOK.md](docs/DEPLOYMENT-RUNBOOK.md) (authoritative)
+- **Hosting requirements and costs**: [docs/HOSTING-REQUIREMENTS.md](docs/HOSTING-REQUIREMENTS.md)
+- **Architecture**: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- **API Reference**: [docs/API.md](docs/API.md)
+- **Configuration reference**: [docs/CONFIGURATION.md](docs/CONFIGURATION.md)
+- **End-user and admin help**: [docs/help/](docs/help/)
 
 ### Support Channels
 - **Email**: compliance@docker.com

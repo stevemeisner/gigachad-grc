@@ -21,16 +21,19 @@ services:
       - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
       - "--log.level=${TRAEFIK_LOG_LEVEL:-WARN}"
       - "--log.format=json"
+      # Access log goes to STDOUT (no --accesslog.filepath), so Docker's
+      # json-file driver below owns rotation. A file inside a volume would
+      # grow until the disk filled - Docker never rotates a file the
+      # application writes itself.
       - "--accesslog=true"
       - "--accesslog.format=json"
-      - "--accesslog.filepath=/var/log/traefik/access.log"
     ports:
       - "80:80"
       - "443:443"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - traefik_letsencrypt:/letsencrypt
-      - traefik_logs:/var/log/traefik
+      # traefik_logs volume removed: the access log is on stdout now.
     networks:
       - grc-network
       - grc-dmz
@@ -43,20 +46,37 @@ services:
       - NET_BIND_SERVICE
     logging:
       driver: "json-file"
+      # Traefik now carries the access log too, so it gets a bigger ring
+      # than the other services: 5 x 20m = 100 MB hard ceiling.
       options:
-        max-size: "10m"
-        max-file: "3"
+        max-size: "20m"
+        max-file: "5"
     healthcheck:
       test: ["CMD", "traefik", "healthcheck", "--ping"]
       interval: 10s
       timeout: 5s
       retries: 3
       start_period: 10s
+    # ---------------------------------------------------------------
+    # MEMORY BUDGET - host is a single 4 vCPU / 8 GiB VM (Hetzner CPX32
+    # or DigitalOcean s-4vcpu-8gb). The memory limits of ALL 12 services
+    # must sum to <= 6656 MiB (6.5 GiB), leaving ~1.9 GiB for the host
+    # OS, the Docker daemon and page cache. They currently sum to
+    # 6208 MiB:
+    #   postgres 1536 | controls 768 | minio 768 | frameworks 512
+    #   policies 512  | tprm 512     | trust 512 | audit 512
+    #   traefik 256   | frontend 96  | gateway 96 | backup-scheduler 128
+    # If you raise one limit, lower another. Over-subscribing does not
+    # give you more RAM - it just hands the choice of victim to the
+    # kernel OOM killer instead of to this file.
+    # CPU limits are deliberately left over-subscribed: they are burst
+    # ceilings and the scheduler throttles rather than kills.
+    # ---------------------------------------------------------------
     deploy:
       resources:
         limits:
           cpus: '1.0'
-          memory: 512M
+          memory: 256M
         reservations:
           cpus: '0.25'
           memory: 128M
@@ -109,7 +129,7 @@ services:
       resources:
         limits:
           cpus: '2.0'
-          memory: 2G
+          memory: 1536M
         reservations:
           cpus: '0.5'
           memory: 512M
@@ -125,7 +145,16 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
-      MINIO_BROWSER: ${MINIO_BROWSER:-on}
+      # Console DISABLED by default. It is an object-store admin UI and has
+      # no business on the public internet on a fresh deploy. To reach it
+      # deliberately: set MINIO_BROWSER=on in .env.prod, `docker compose -f
+      # docker-compose.prod.yml up -d minio`, then from your workstation
+      # tunnel to the container's console port 9001 (it is NOT published on
+      # the host, and there is no Traefik router for it any more):
+      #   ssh -L 9001:$(ssh HOST "docker inspect -f \
+      #     '{{.NetworkSettings.Networks.grc-dmz.IPAddress}}' grc-minio"):9001 HOST
+      # and open http://localhost:9001. Set it back to off when finished.
+      MINIO_BROWSER: ${MINIO_BROWSER:-off}
       MINIO_PROMETHEUS_AUTH_TYPE: public
       MINIO_UPDATE: "off"
       MINIO_DOMAIN: ${MINIO_DOMAIN:-storage.${APP_DOMAIN}}
@@ -143,12 +172,9 @@ services:
       - "traefik.http.routers.minio-api.tls.certresolver=letsencrypt"
       - "traefik.http.routers.minio-api.service=minio-api"
       - "traefik.http.services.minio-api.loadbalancer.server.port=9000"
-      # Console
-      - "traefik.http.routers.minio-console.rule=Host(`console.storage.${APP_DOMAIN}`)"
-      - "traefik.http.routers.minio-console.entrypoints=websecure"
-      - "traefik.http.routers.minio-console.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.minio-console.service=minio-console"
-      - "traefik.http.services.minio-console.loadbalancer.server.port=9001"
+      # No console router: see the MINIO_BROWSER note above. Only the S3 API
+      # (port 9000) is published, because the browser fetches evidence from
+      # storage.${APP_DOMAIN} via presigned URLs.
     restart: always
     security_opt:
       - no-new-privileges:true
@@ -169,7 +195,7 @@ services:
       resources:
         limits:
           cpus: '2.0'
-          memory: 2G
+          memory: 768M
         reservations:
           cpus: '0.25'
           memory: 256M
@@ -237,7 +263,9 @@ services:
       resources:
         limits:
           cpus: '1.0'
-          memory: 1G
+          # Highest of the six: largest service, and it renders PDFs
+          # via pdfkit, which spikes well above the steady-state heap.
+          memory: 768M
         reservations:
           cpus: '0.25'
           memory: 256M
@@ -305,7 +333,7 @@ services:
       resources:
         limits:
           cpus: '1.0'
-          memory: 1G
+          memory: 512M
         reservations:
           cpus: '0.25'
           memory: 256M
@@ -373,7 +401,7 @@ services:
       resources:
         limits:
           cpus: '1.0'
-          memory: 1G
+          memory: 512M
         reservations:
           cpus: '0.25'
           memory: 256M
@@ -441,7 +469,7 @@ services:
       resources:
         limits:
           cpus: '1.0'
-          memory: 1G
+          memory: 512M
         reservations:
           cpus: '0.25'
           memory: 256M
@@ -509,7 +537,7 @@ services:
       resources:
         limits:
           cpus: '1.0'
-          memory: 1G
+          memory: 512M
         reservations:
           cpus: '0.25'
           memory: 256M
@@ -577,7 +605,7 @@ services:
       resources:
         limits:
           cpus: '1.0'
-          memory: 1G
+          memory: 512M
         reservations:
           cpus: '0.25'
           memory: 256M
@@ -630,7 +658,8 @@ services:
       resources:
         limits:
           cpus: '0.5'
-          memory: 256M
+          # nginx serving static assets from tmpfs - it needs almost nothing.
+          memory: 96M
         reservations:
           cpus: '0.1'
           memory: 64M
@@ -705,7 +734,8 @@ services:
       resources:
         limits:
           cpus: '1.0'
-          memory: 256M
+          # nginx reverse proxy only, no static content of its own.
+          memory: 96M
         reservations:
           cpus: '0.25'
           memory: 64M
@@ -754,7 +784,8 @@ services:
       resources:
         limits:
           cpus: '0.5'
-          memory: 256M
+          # Idle between cron ticks; only pg_dump/gzip briefly need memory.
+          memory: 128M
         reservations:
           cpus: '0.1'
           memory: 64M
@@ -780,8 +811,6 @@ volumes:
   minio_data:
     driver: local
   traefik_letsencrypt:
-    driver: local
-  traefik_logs:
     driver: local
   grc_backups:
     driver: local

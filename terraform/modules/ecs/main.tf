@@ -407,21 +407,24 @@ resource "aws_ecs_task_definition" "controls" {
           name  = "AWS_REGION"
           value = var.aws_region
         },
+        # Firebase Authentication (services/shared/src/auth/firebase-auth.guard.ts).
+        # Do NOT add AUTH_MODE here: its only valid production value is unset, and the
+        # guard refuses to boot when AUTH_MODE=demo and NODE_ENV=production.
         {
-          name  = "KEYCLOAK_URL"
-          value = var.keycloak_url
+          name  = "FIREBASE_PROJECT_ID"
+          value = var.firebase_project_id
         },
         {
-          name  = "KEYCLOAK_REALM"
-          value = var.keycloak_realm
+          name  = "ALLOWED_EMAIL_DOMAINS"
+          value = var.allowed_email_domains
         },
         {
-          name  = "KEYCLOAK_CLIENT_ID"
-          value = var.keycloak_client_id
+          name  = "AUTH_AUTO_PROVISION"
+          value = tostring(var.auth_auto_provision)
         },
         {
-          name  = "KEYCLOAK_CLIENT_SECRET"
-          value = var.keycloak_client_secret
+          name  = "AUTH_DEFAULT_ORG_ID"
+          value = var.auth_default_org_id
         }
       ]
 
@@ -514,21 +517,24 @@ resource "aws_ecs_task_definition" "frameworks" {
           name  = "AWS_REGION"
           value = var.aws_region
         },
+        # Firebase Authentication (services/shared/src/auth/firebase-auth.guard.ts).
+        # Do NOT add AUTH_MODE here: its only valid production value is unset, and the
+        # guard refuses to boot when AUTH_MODE=demo and NODE_ENV=production.
         {
-          name  = "KEYCLOAK_URL"
-          value = var.keycloak_url
+          name  = "FIREBASE_PROJECT_ID"
+          value = var.firebase_project_id
         },
         {
-          name  = "KEYCLOAK_REALM"
-          value = var.keycloak_realm
+          name  = "ALLOWED_EMAIL_DOMAINS"
+          value = var.allowed_email_domains
         },
         {
-          name  = "KEYCLOAK_CLIENT_ID"
-          value = var.keycloak_client_id
+          name  = "AUTH_AUTO_PROVISION"
+          value = tostring(var.auth_auto_provision)
         },
         {
-          name  = "KEYCLOAK_CLIENT_SECRET"
-          value = var.keycloak_client_secret
+          name  = "AUTH_DEFAULT_ORG_ID"
+          value = var.auth_default_org_id
         },
         {
           name  = "CONTROLS_SERVICE_URL"
@@ -625,21 +631,24 @@ resource "aws_ecs_task_definition" "policies" {
           name  = "AWS_REGION"
           value = var.aws_region
         },
+        # Firebase Authentication (services/shared/src/auth/firebase-auth.guard.ts).
+        # Do NOT add AUTH_MODE here: its only valid production value is unset, and the
+        # guard refuses to boot when AUTH_MODE=demo and NODE_ENV=production.
         {
-          name  = "KEYCLOAK_URL"
-          value = var.keycloak_url
+          name  = "FIREBASE_PROJECT_ID"
+          value = var.firebase_project_id
         },
         {
-          name  = "KEYCLOAK_REALM"
-          value = var.keycloak_realm
+          name  = "ALLOWED_EMAIL_DOMAINS"
+          value = var.allowed_email_domains
         },
         {
-          name  = "KEYCLOAK_CLIENT_ID"
-          value = var.keycloak_client_id
+          name  = "AUTH_AUTO_PROVISION"
+          value = tostring(var.auth_auto_provision)
         },
         {
-          name  = "KEYCLOAK_CLIENT_SECRET"
-          value = var.keycloak_client_secret
+          name  = "AUTH_DEFAULT_ORG_ID"
+          value = var.auth_default_org_id
         }
       ]
 
@@ -732,21 +741,24 @@ resource "aws_ecs_task_definition" "tprm" {
           name  = "AWS_REGION"
           value = var.aws_region
         },
+        # Firebase Authentication (services/shared/src/auth/firebase-auth.guard.ts).
+        # Do NOT add AUTH_MODE here: its only valid production value is unset, and the
+        # guard refuses to boot when AUTH_MODE=demo and NODE_ENV=production.
         {
-          name  = "KEYCLOAK_URL"
-          value = var.keycloak_url
+          name  = "FIREBASE_PROJECT_ID"
+          value = var.firebase_project_id
         },
         {
-          name  = "KEYCLOAK_REALM"
-          value = var.keycloak_realm
+          name  = "ALLOWED_EMAIL_DOMAINS"
+          value = var.allowed_email_domains
         },
         {
-          name  = "KEYCLOAK_CLIENT_ID"
-          value = var.keycloak_client_id
+          name  = "AUTH_AUTO_PROVISION"
+          value = tostring(var.auth_auto_provision)
         },
         {
-          name  = "KEYCLOAK_CLIENT_SECRET"
-          value = var.keycloak_client_secret
+          name  = "AUTH_DEFAULT_ORG_ID"
+          value = var.auth_default_org_id
         },
         {
           name  = "POLICIES_SERVICE_URL"
@@ -843,21 +855,24 @@ resource "aws_ecs_task_definition" "trust" {
           name  = "AWS_REGION"
           value = var.aws_region
         },
+        # Firebase Authentication (services/shared/src/auth/firebase-auth.guard.ts).
+        # Do NOT add AUTH_MODE here: its only valid production value is unset, and the
+        # guard refuses to boot when AUTH_MODE=demo and NODE_ENV=production.
         {
-          name  = "KEYCLOAK_URL"
-          value = var.keycloak_url
+          name  = "FIREBASE_PROJECT_ID"
+          value = var.firebase_project_id
         },
         {
-          name  = "KEYCLOAK_REALM"
-          value = var.keycloak_realm
+          name  = "ALLOWED_EMAIL_DOMAINS"
+          value = var.allowed_email_domains
         },
         {
-          name  = "KEYCLOAK_CLIENT_ID"
-          value = var.keycloak_client_id
+          name  = "AUTH_AUTO_PROVISION"
+          value = tostring(var.auth_auto_provision)
         },
         {
-          name  = "KEYCLOAK_CLIENT_SECRET"
-          value = var.keycloak_client_secret
+          name  = "AUTH_DEFAULT_ORG_ID"
+          value = var.auth_default_org_id
         }
       ]
 
@@ -950,21 +965,24 @@ resource "aws_ecs_task_definition" "audit" {
           name  = "AWS_REGION"
           value = var.aws_region
         },
+        # Firebase Authentication (services/shared/src/auth/firebase-auth.guard.ts).
+        # Do NOT add AUTH_MODE here: its only valid production value is unset, and the
+        # guard refuses to boot when AUTH_MODE=demo and NODE_ENV=production.
         {
-          name  = "KEYCLOAK_URL"
-          value = var.keycloak_url
+          name  = "FIREBASE_PROJECT_ID"
+          value = var.firebase_project_id
         },
         {
-          name  = "KEYCLOAK_REALM"
-          value = var.keycloak_realm
+          name  = "ALLOWED_EMAIL_DOMAINS"
+          value = var.allowed_email_domains
         },
         {
-          name  = "KEYCLOAK_CLIENT_ID"
-          value = var.keycloak_client_id
+          name  = "AUTH_AUTO_PROVISION"
+          value = tostring(var.auth_auto_provision)
         },
         {
-          name  = "KEYCLOAK_CLIENT_SECRET"
-          value = var.keycloak_client_secret
+          name  = "AUTH_DEFAULT_ORG_ID"
+          value = var.auth_default_org_id
         }
       ]
 
@@ -1048,19 +1066,12 @@ resource "aws_ecs_task_definition" "frontend" {
         {
           name  = "AUDIT_SERVICE_URL"
           value = "http://audit.${var.name_prefix}.local:3007"
-        },
-        {
-          name  = "KEYCLOAK_URL"
-          value = var.keycloak_url
-        },
-        {
-          name  = "KEYCLOAK_REALM"
-          value = var.keycloak_realm
-        },
-        {
-          name  = "KEYCLOAK_CLIENT_ID"
-          value = var.keycloak_client_id
         }
+        # No auth variables here: the Firebase web config is build-time only.
+        # VITE_FIREBASE_API_KEY, VITE_FIREBASE_AUTH_DOMAIN, VITE_FIREBASE_PROJECT_ID and
+        # the optional VITE_ALLOWED_EMAIL_DOMAIN are baked into the static bundle by
+        # `docker build`, so they cannot be injected at runtime. The Firebase web API key
+        # is a public client identifier, not a secret, and must not go in Secrets Manager.
       ]
 
       logConfiguration = {

@@ -13,7 +13,7 @@ This comprehensive guide explains how to run GigaChad GRC in demo mode to explor
 - [Option 3: Manual Setup](#option-3-manual-setup)
 - [Loading Demo Data](#loading-demo-data)
 - [What's Included in Demo Data](#whats-included-in-demo-data)
-- [Using Dev Auth Mode](#dev-auth-mode)
+- [Demo Auth Mode](#demo-auth-mode)
 - [Exploring the Platform](#exploring-the-platform)
 - [Resetting Demo Data](#resetting-demo-data)
 - [Troubleshooting](#troubleshooting)
@@ -36,7 +36,7 @@ This comprehensive guide explains how to run GigaChad GRC in demo mode to explor
 
 | Requirement | Version | Download |
 |-------------|---------|----------|
-| **Docker Desktop** | v24.0+ | [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop) |
+| **Docker** with Compose v2 | v24.0+ | Docker Desktop, Colima or Engine — `start-demo.sh` only checks that `docker info` and `docker compose version` work: [docker.com](https://www.docker.com/products/docker-desktop) |
 | **Node.js** | v18+ (v20 recommended) | [nodejs.org](https://nodejs.org/) |
 | **Git** | Any recent version | [git-scm.com](https://git-scm.com/) |
 
@@ -97,49 +97,62 @@ cd gigachad-grc
 1. ✅ Verifies Docker is running and that every required host port is free
 2. ✅ Creates `.env` from `env.development` if missing (and refuses a `.env`
    carrying `NODE_ENV=production`)
-3. ✅ Starts infrastructure (PostgreSQL, Keycloak, MinIO)
+3. ✅ Starts infrastructure (PostgreSQL and MinIO — that is all the demo needs)
 4. ✅ Waits for the database, then creates the schema with `prisma db push`
-5. ✅ Applies `database/dev-bootstrap.sql` (the organization and user
-   `DevAuthGuard` hard-codes)
-6. ✅ Builds the shared library and the six services, then starts them
-7. ✅ Installs frontend dependencies (if needed) and starts the dev server
+5. ✅ Applies `database/dev-bootstrap.sql` (the organization and user the
+   `AUTH_MODE=demo` identity resolves to)
+6. ✅ Builds the shared library and the six services, then starts them with
+   `AUTH_MODE=demo`
+7. ✅ Installs frontend dependencies (if needed) and starts the Vite dev server
+   with `VITE_AUTH_MODE=demo`
 8. ✅ Loads demo data on the first run
 9. ✅ Opens your browser to `http://localhost:3000`
 
-Use `http://localhost:3000`, not `127.0.0.1:3000` — only `localhost` is in
-Keycloak's redirect allow-list (`auth/realm-export.json`).
+Use `http://localhost:3000`, not `127.0.0.1:3000`. Firebase authorised domains
+and the Google OAuth redirect are registered for `http://localhost:3000`, which
+is why the script always opens that origin and passes `--strictPort` so Vite
+cannot move off it.
 
 ### Expected Output
 
 ```
-🚀 GigaChad GRC Demo Launcher
-==============================
+╔═══════════════════════════════════════════════════════════════╗
+║   🚀 GigaChad GRC - One-Click Demo                            ║
+╚═══════════════════════════════════════════════════════════════╝
 
-📦 Starting infrastructure services...
-⏳ Waiting for database to be ready...
-✓ Database is ready
-🏗️ Starting application services...
-⏳ Waiting for services to start...
-✓ API services are ready
-🎨 Starting frontend...
-⏳ Waiting for frontend...
-✓ Frontend is ready
+[1/8] Checking prerequisites...
+   ✓ Docker is running
+   ✓ Node.js v20.11.1
+   ✓ All required ports are free
 
-================================================
-🎉 GigaChad GRC Demo is Ready!
-================================================
+[2/8] Setting up environment...
+   ✓ Created .env from env.development
 
-📍 Access Points:
-   Frontend:      http://localhost:3000
-   API Docs:      http://localhost:3001/api/docs
-   Keycloak:      http://localhost:8080 (admin/admin)
+[3/8] Starting infrastructure (PostgreSQL, MinIO)...
+   ✓ PostgreSQL ready
 
-🔐 Login:
-   Click 'Dev Login' button for instant access
+... (schema, build, services, demo data, frontend)
 
-📊 Demo Data:
-   Go to Settings > Organization > Load Demo Data
+╔═══════════════════════════════════════════════════════════════╗
+║   🎉 GigaChad GRC is ready!                                   ║
+╚═══════════════════════════════════════════════════════════════╝
+
+📍 Open the app:
+   http://localhost:3000
+
+🔐 Sign in:
+   Click 'Dev Login (Skip SSO)'. No password needed.
+   You are signed in as John Doe (admin) of the demo organization.
+
+🔧 Other endpoints:
+   Controls API health   http://localhost:3001/api/system/health
+   MinIO console         http://localhost:9001  (minioadmin / ...)
+
+📄 Logs: .demo/logs/
 ```
+
+There is no identity-provider container and no admin console to visit: the
+demo signs in through the `AUTH_MODE=demo` bypass, not through an IdP.
 
 ### Stopping the Demo
 
@@ -147,8 +160,11 @@ Keycloak's redirect allow-list (`auth/realm-export.json`).
 # Stop the frontend, the six services and the containers
 ./scripts/stop-demo.sh
 
-# Also drop the database volumes (fresh start next time)
+# Also drop the PostgreSQL and MinIO volumes (fresh start next time)
 ./scripts/stop-demo.sh --clean
+
+# Also delete .env and built output
+./scripts/stop-demo.sh --purge
 ```
 
 Ctrl+C in the terminal running the script stops the frontend and the six host
@@ -217,15 +233,16 @@ cd frontend && npm install && cd ..
 ### Step 2: Start Infrastructure
 
 ```bash
-# Start database, identity provider and object storage
-docker compose up -d postgres keycloak minio
+# Start the database and object storage — the only containers the demo needs
+docker compose up -d postgres minio
 
 # Wait for services to be healthy
 docker compose ps
 ```
 
-Keycloak has to be running even if you only ever use Dev Login: the frontend
-calls `keycloak.init({ onLoad: 'check-sso' })` on every page load.
+There is no identity-provider container. Authentication in the demo is the
+`AUTH_MODE=demo` bypass in `services/shared/src/auth/firebase-auth.guard.ts`;
+a real deployment points `FIREBASE_PROJECT_ID` at a Firebase project instead.
 
 ### Step 3: Configure Environment
 
@@ -235,8 +252,13 @@ cp env.development .env
 
 > ⚠️ Use `env.development`. There is no `env.example` at the repository root, and
 > `deploy/env.example` is the **production** template — it sets
-> `NODE_ENV=production`, which makes `DevAuthGuard` throw so every controls
-> endpoint answers HTTP 500.
+> `NODE_ENV=production`, which makes `FirebaseAuthGuard` refuse to start under
+> `AUTH_MODE=demo` ("SECURITY ERROR: AUTH_MODE=demo is set but NODE_ENV is
+> production").
+
+`env.development` already ships `AUTH_MODE=demo` and `VITE_AUTH_MODE=demo`, with
+`FIREBASE_PROJECT_ID`, `ALLOWED_EMAIL_DOMAINS` and the `VITE_FIREBASE_*` values
+left empty. Nothing else has to be configured for the demo.
 
 Leave `VITE_API_URL` empty, as the template ships it: the Vite dev server proxies
 each `/api/*` prefix to the service that owns it (`frontend/vite.config.ts`).
@@ -248,7 +270,7 @@ Pointing the SPA at a single service breaks every other module.
 # One shared schema for all six services
 npm run db:push
 
-# Insert the organization and user that DevAuthGuard hard-codes
+# Insert the organization and user the demo identity resolves to
 docker compose exec -T postgres \
   psql -U grc -d gigachad_grc < database/dev-bootstrap.sql
 ```
@@ -257,27 +279,47 @@ Without those two rows the demo seeder fails with Prisma error `P2025`.
 
 ### Step 5: Start Services
 
-**Option A: Docker (All Services)**
+**Option A: Docker (all services)**
 ```bash
 docker compose up -d
 ```
 
-**Option B: Local Development (Separate Terminals)**
+`docker-compose.yml` passes `AUTH_MODE: ${AUTH_MODE:-demo}` to every service, so
+a `.env` copied from `env.development` keeps the demo bypass in place. The first
+build takes 25–60 minutes, which is why `start-demo.sh` runs the services on the
+host instead.
 
-Terminal 1 - Controls API:
+**Option B: On the host (separate terminals)**
+
+Each service reads its configuration from the process environment, and it is
+started from its own directory — so export the root `.env` first, otherwise
+`FirebaseAuthGuard` aborts at boot with "FIREBASE_PROJECT_ID is not set".
+
+Terminal 1 — Controls API (port 3001):
 ```bash
-cd services/controls && npm run start:dev
+set -a; . ./.env; set +a
+cd services/controls && PORT=3001 npm run start:dev
 ```
 
-Terminal 2 - Frameworks API:
+Terminal 2 — Frameworks API (port 3002):
 ```bash
-cd services/frameworks && npm run start:dev
+set -a; . ./.env; set +a
+cd services/frameworks && PORT=3002 npm run start:dev
 ```
 
-Terminal 3 - Frontend:
+Terminal 3 — Frontend:
 ```bash
-cd frontend && npm run dev
+cd frontend && VITE_AUTH_MODE=demo npm run dev -- --host 127.0.0.1 --port 3000 --strictPort
 ```
+
+Vite loads `.env` from `frontend/`, not from the repository root, and no such
+file is committed — so pass `VITE_AUTH_MODE=demo` on the command line (Vite
+exposes `VITE_`-prefixed variables already in the environment). Without it the
+"Dev Login (Skip SSO)" button never renders.
+
+The remaining services are `policies` (3004), `tprm` (3005), `trust` (3006) and
+`audit` (3007); start the ones whose modules you want to use. Pages backed by a
+service that is not running show a request error.
 
 ### Step 6: Access the Application
 
@@ -292,7 +334,7 @@ Once the platform is running, load comprehensive sample data to explore all feat
 ### Method 1: Via the User Interface (Recommended)
 
 1. **Log in** to the platform
-   - Click the **"Dev Login"** button on the login page
+   - Click the **"Dev Login (Skip SSO)"** button on the login page
    - This logs you in as an admin user
 
 2. **Navigate to Demo Data Settings**
@@ -311,9 +353,9 @@ Once the platform is running, load comprehensive sample data to explore all feat
 curl -X POST http://localhost:3001/api/seed/load-demo
 ```
 
-Development requests need no token — every controller is bound to `DevAuthGuard`,
-which fabricates the admin user. Re-running the route returns HTTP **409** once
-the organization holds data; reset it first (see
+Under `AUTH_MODE=demo` requests need no token: `FirebaseAuthGuard` skips
+verification and resolves the demo identity from PostgreSQL. Re-running the
+route returns HTTP **409** once the organization holds data; reset it first (see
 [Resetting Demo Data](#resetting-demo-data)).
 
 ### Method 3: Automatically, via the Demo Script
@@ -391,26 +433,37 @@ The demo dataset includes realistic sample data across all platform modules:
 
 ---
 
-## Dev Auth Mode
+## Demo Auth Mode
 
-Dev Auth provides instant access without configuring Keycloak authentication.
+`AUTH_MODE=demo` gives instant access without a Firebase project.
 
 ### How It Works
 
-1. A **"Dev Login"** button appears on the login page whenever the frontend runs
-   under `npm run dev` — it is gated on Vite's `import.meta.env.DEV`
-   (`frontend/src/pages/Login.tsx`), so there is nothing to switch on.
-2. Clicking it skips Keycloak's login flow.
-3. Every backend controller is bound to `DevAuthGuard`, which fabricates a
-   full-permission admin user from any request without validating a token.
+1. **Backend.** `FirebaseAuthGuard` — the only authentication guard in the
+   system, referenced by 99 `@UseGuards` sites — sees `AUTH_MODE=demo` and skips
+   Google ID token verification. It still resolves the identity out of
+   PostgreSQL through the same code path a real sign-in uses, so demo and
+   production cannot drift apart in how a `UserContext` is built. The row it
+   loads is the one `database/dev-bootstrap.sql` inserts
+   (`external_id = 'demo-user'`).
+2. **Frontend.** The **"Dev Login (Skip SSO)"** button renders only when
+   `import.meta.env.DEV && VITE_AUTH_MODE === 'demo'`
+   (`frontend/src/contexts/AuthContext.tsx`), so a production bundle cannot
+   contain a reachable bypass. Clicking it marks the context authenticated with
+   **no** token and mirrors the same identity the API will report; the session
+   is kept in `sessionStorage` so a page refresh does not sign you out.
+3. The other button, **"Sign in with Google"**, is the real path and needs
+   `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN` and
+   `VITE_FIREBASE_PROJECT_ID` at build time plus `FIREBASE_PROJECT_ID` on the
+   API. It does nothing in a demo checkout, where those are empty.
 
-Keycloak still has to be running: `AuthContext` calls
-`keycloak.init({ onLoad: 'check-sso' })` on every page load.
+Both variables are already set in `env.development`; `start-demo.sh` also
+passes them explicitly so a `.env` predating them still works.
 
-> `VITE_ENABLE_DEV_AUTH` does **not** enable Dev Login. It exists only to make a
-> production build fail loudly, so setting it changes nothing in development.
+> There is no `USE_DEV_AUTH` or `VITE_ENABLE_DEV_AUTH`. `AUTH_MODE` /
+> `VITE_AUTH_MODE` are the only switches.
 
-### Dev Auth User Details
+### Demo User Details
 
 | Property | Value |
 |----------|-------|
@@ -420,16 +473,26 @@ Keycloak still has to be running: `AuthContext` calls
 | Organization | `8924f0c1-7bb1-4be8-84ee-ad8725c712bf` (default org) |
 | Permissions | Full access to all modules |
 
-Those two UUIDs are hard-coded in `services/*/src/auth/dev-auth.guard.ts` and
-inserted by `database/dev-bootstrap.sql`.
+Those two UUIDs, plus `external_id = 'demo-user'` and the email above, are
+constants in `services/shared/src/auth/firebase-auth.guard.ts` and are inserted
+by `database/dev-bootstrap.sql`. `permissions` is empty in the demo context;
+the frontend's `hasPermission()` returns true for every check while the demo
+bypass is active, and the API's `PermissionGuard` reads the admin role from the
+seeded row.
 
 ### Security Note
 
-⚠️ **Never run the development configuration in production.** It has no
-authentication at all: `DevAuthGuard` trusts every request, and the real
-JWKS-validating `JwtAuthGuard` is wired to zero controllers. `DevAuthGuard`
-throws when `NODE_ENV=production`, so a production `.env` turns every controls
-endpoint into an HTTP 500 rather than securing it. Keep the demo on loopback.
+⚠️ **Never run the demo configuration in production.** With `AUTH_MODE=demo`
+every request is served as `john.doe@example.com` with no token at all. Two
+things stop it reaching production, and neither is a reason to relax:
+
+- `FirebaseAuthGuard` throws at boot when `AUTH_MODE=demo` meets
+  `NODE_ENV=production` ("SECURITY ERROR: AUTH_MODE=demo is set but NODE_ENV is
+  production"), so the service refuses to start rather than serving open.
+- `vite.config.ts` fails a production build outright if `VITE_AUTH_MODE=demo`
+  is still set, and the button is additionally gated on `import.meta.env.DEV`.
+
+Keep the demo on loopback anyway.
 
 ---
 
@@ -594,36 +657,49 @@ docker compose logs postgres
 
 **Cause:** Logged in as non-admin user.
 
-**Solution:** Use Dev Login which provides admin access.
+**Solution:** Use "Dev Login (Skip SSO)", which signs you in as the seeded admin.
 
 ### Dev Login Issues
 
-#### "Dev Login" button not showing
+#### "Dev Login (Skip SSO)" button not showing
 
-**Cause:** The frontend is not running in Vite's dev mode — the button is gated
-on `import.meta.env.DEV`, not on any environment variable. A production build
-(`npm run build` + `npm run preview`) never shows it.
+**Cause:** The button is gated on `import.meta.env.DEV && VITE_AUTH_MODE ===
+'demo'` (`frontend/src/contexts/AuthContext.tsx`). Either the frontend is not
+running under the Vite dev server — a production build never shows it — or
+`VITE_AUTH_MODE` is not `demo` in the dev server's environment. Vite reads
+`frontend/.env`, not the repository root `.env`.
 
-**Solution:** Run the dev server.
+**Solution:** Run the dev server the way the demo script does.
 
 ```bash
 cd frontend
-npm run dev
+VITE_AUTH_MODE=demo npm run dev -- --host 127.0.0.1 --port 3000 --strictPort
 ```
 
-#### Dev Login gives an error, or every page shows errors
+#### Services refuse to start, or every page shows errors
 
 **Cause:** `.env` carries `NODE_ENV=production` — usually from copying
-`deploy/env.example`. `DevAuthGuard` throws in production, so every controls
-endpoint answers HTTP **500**.
+`deploy/env.example`. `FirebaseAuthGuard` throws while being constructed when
+`AUTH_MODE=demo` meets `NODE_ENV=production`, so the service fails to boot
+rather than serving unauthenticated traffic. `start-demo.sh` detects this in
+step 2 and refuses to continue.
 
-**Solution:** Use the development template and restart the services.
+**Solution:** Use the development template and restart.
 
 ```bash
 grep '^NODE_ENV=' .env          # must be development
 mv .env .env.production.bak && cp env.development .env
 ./scripts/stop-demo.sh && ./scripts/start-demo.sh
 ```
+
+#### "FIREBASE_PROJECT_ID is not set" at startup
+
+**Cause:** `AUTH_MODE` is not `demo` and no Firebase project is configured, so
+the guard has nothing to validate token issuers against and refuses to guess.
+
+**Solution:** For a demo, make sure `AUTH_MODE=demo` reaches the service — it is
+in `env.development`, and a manually started service needs the root `.env`
+exported (`set -a; . ./.env; set +a`).
 
 ### Service Issues
 
@@ -683,6 +759,7 @@ kill -9 <PID>
 - [Configuration Guide](./CONFIGURATION.md) - Environment variables and settings
 - [Architecture Guide](./ARCHITECTURE.md) - System architecture overview
 - [Troubleshooting Guide](./TROUBLESHOOTING.md) - Common issues and solutions
+- [Deployment Runbook](./DEPLOYMENT-RUNBOOK.md) - Putting this into production
 
 ---
 

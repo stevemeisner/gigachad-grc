@@ -6,11 +6,14 @@ import { visualizer } from 'rollup-plugin-visualizer';
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
 
-  // Prevent accidental shipping of dev-only auth flags in production builds
-  if (mode === 'production' && env.VITE_ENABLE_DEV_AUTH === 'true') {
+  // Prevent the demo auth bypass from being baked into a production build.
+  // The bypass also requires `import.meta.env.DEV`, so a production build
+  // cannot activate it, but a production env that still sets this flag is a
+  // misconfiguration worth failing on rather than shipping.
+  if (mode === 'production' && env.VITE_AUTH_MODE === 'demo') {
     throw new Error(
-      'VITE_ENABLE_DEV_AUTH must be false or unset for production builds. ' +
-      'Disable dev auth in your production env before building.'
+      'VITE_AUTH_MODE=demo must not be set for production builds. ' +
+      'Leave it unset before building.'
     );
   }
 
@@ -114,9 +117,6 @@ export default defineConfig(({ mode }) => {
             // Authentication
             if (id.includes('@okta')) {
               return 'vendor-auth-okta';
-            }
-            if (id.includes('keycloak')) {
-              return 'vendor-auth-keycloak';
             }
             
             // Error tracking

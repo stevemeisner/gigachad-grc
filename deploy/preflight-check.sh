@@ -98,10 +98,16 @@ fi
 
 section "Checking Environment Configuration"
 
-ENV_FILE=".env"
-if [ ! -f "$ENV_FILE" ]; then
-    ENV_FILE="../.env"
-fi
+# The production deployment lives in .env.prod (docker-compose.prod.yml is run
+# with --env-file .env.prod, and deploy/backup.sh reads the same file). Fall
+# back to .env for a local stack. Run from the repository root.
+for candidate in ".env.prod" "../.env.prod" ".env" "../.env"; do
+    if [ -f "$candidate" ]; then
+        ENV_FILE="$candidate"
+        break
+    fi
+done
+ENV_FILE="${ENV_FILE:-.env.prod}"
 
 if [ -f "$ENV_FILE" ]; then
     check_pass "Environment file found ($ENV_FILE)"
@@ -118,9 +124,13 @@ if [ -f "$ENV_FILE" ]; then
         "POSTGRES_USER"
         "POSTGRES_PASSWORD"
         "POSTGRES_DB"
-        "KEYCLOAK_ADMIN"
-        "KEYCLOAK_ADMIN_PASSWORD"
+        "FIREBASE_PROJECT_ID"
+        "ALLOWED_EMAIL_DOMAINS"
+        "VITE_FIREBASE_API_KEY"
+        "VITE_FIREBASE_AUTH_DOMAIN"
+        "VITE_FIREBASE_PROJECT_ID"
         "JWT_SECRET"
+        "ENCRYPTION_KEY"
         "APP_DOMAIN"
         "ACME_EMAIL"
     )
@@ -148,10 +158,35 @@ if [ -f "$ENV_FILE" ]; then
     if [ ${#JWT_SECRET} -lt 32 ]; then
         check_warn "JWT_SECRET should be at least 32 characters"
     fi
+
+    # The frontend bundle is built from the VITE_* values, so a mismatch
+    # between VITE_FIREBASE_PROJECT_ID and FIREBASE_PROJECT_ID produces a
+    # frontend whose tokens the backend guard will always reject.
+    BACKEND_PROJECT=$(grep "^FIREBASE_PROJECT_ID=" "$ENV_FILE" 2>/dev/null | cut -d '=' -f2)
+    FRONTEND_PROJECT=$(grep "^VITE_FIREBASE_PROJECT_ID=" "$ENV_FILE" 2>/dev/null | cut -d '=' -f2)
+    if [ -n "$BACKEND_PROJECT" ] && [ "$BACKEND_PROJECT" != "$FRONTEND_PROJECT" ]; then
+        check_fail "VITE_FIREBASE_PROJECT_ID must equal FIREBASE_PROJECT_ID"
+    fi
+
+    # The only auth bypass in the codebase is AUTH_MODE=demo (backend) /
+    # VITE_AUTH_MODE=demo (frontend). The backend guard hard-throws when
+    # NODE_ENV=production, so a deployment carrying it will not start.
+    if grep -Eq "^(AUTH_MODE|VITE_AUTH_MODE)=demo" "$ENV_FILE" 2>/dev/null; then
+        check_fail "AUTH_MODE/VITE_AUTH_MODE is set to 'demo' - remove it before deploying"
+    else
+        check_pass "Demo auth bypass is not enabled"
+    fi
+
+    ENV_NODE_ENV=$(grep "^NODE_ENV=" "$ENV_FILE" 2>/dev/null | cut -d '=' -f2)
+    if [ "$ENV_NODE_ENV" = "production" ]; then
+        check_pass "NODE_ENV is production"
+    else
+        check_warn "NODE_ENV is '${ENV_NODE_ENV:-unset}' - production deployments must set NODE_ENV=production"
+    fi
     
 else
-    check_fail "Environment file not found"
-    check_info "Copy deploy/env.example to .env and configure it"
+    check_fail "Environment file not found (looked for .env.prod and .env)"
+    check_info "Copy deploy/env.example to .env.prod and configure it"
 fi
 
 # =============================================================================
@@ -184,7 +219,12 @@ fi
 
 section "Checking Port Availability"
 
-REQUIRED_PORTS=(80 443 8080 3001 3002 3004 3005 3006 3007 5432 6379 9000)
+# Ports the production stack publishes on the host (docker-compose.prod.yml
+# maps only Traefik's 80/443). Frontend 3000, controls 3001, frameworks 3002,
+# policies 3004, tprm 3005, trust 3006, audit 3007, postgres 5432 and
+# minio 9000/9001 stay on the internal Docker network and are reached through
+# the nginx gateway, so a local process on those ports does not block a deploy.
+REQUIRED_PORTS=(80 443)
 
 for port in "${REQUIRED_PORTS[@]}"; do
     if lsof -i ":$port" &> /dev/null 2>&1 || netstat -tuln 2>/dev/null | grep -q ":$port "; then
@@ -231,11 +271,19 @@ else
     check_fail "docker-compose.prod.yml not found"
 fi
 
-# Check Keycloak realm export
-if [ -f "auth/realm-export.json" ]; then
-    check_pass "Keycloak realm configuration found"
+# Check the nginx gateway config - docker-compose.prod.yml mounts it read-only
+# into the gateway container, which is the single public entrypoint
+if [ -f "gateway/nginx.conf" ]; then
+    check_pass "Gateway routing configuration found (gateway/nginx.conf)"
 else
-    check_fail "auth/realm-export.json not found"
+    check_fail "gateway/nginx.conf not found"
+fi
+
+# Check Traefik static configuration
+if [ -f "gateway/traefik.yml" ]; then
+    check_pass "Traefik configuration found (gateway/traefik.yml)"
+else
+    check_warn "gateway/traefik.yml not found"
 fi
 
 # Check database init scripts

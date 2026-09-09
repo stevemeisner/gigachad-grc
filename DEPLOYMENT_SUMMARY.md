@@ -18,12 +18,12 @@ Complete infrastructure-as-code for deploying to AWS with high availability, aut
 
 #### Core Configuration
 - `terraform/main.tf` - Main infrastructure orchestration
-- `terraform/variables.tf` - All configuration variables (27 variables)
+- `terraform/variables.tf` - All configuration variables (32 variables)
 - `terraform/outputs.tf` - Deployment outputs and instructions
 - `terraform/terraform.tfvars.example` - Example configuration
 - `terraform/README.md` - Comprehensive deployment guide
 
-#### Terraform Modules (3,136+ lines of code)
+#### Terraform Modules (6 modules, ~3,200 lines of HCL)
 
 **1. VPC Module** (`terraform/modules/vpc/`)
 - VPC with public/private subnets across multiple AZs
@@ -46,7 +46,7 @@ Complete infrastructure-as-code for deploying to AWS with high availability, aut
 - Target groups for routing
 - Health checks on `/health`
 - Cross-zone load balancing
-- **Files**: main.tf (194 lines), variables.tf, outputs.tf
+- **Files**: main.tf, variables.tf, outputs.tf
 
 **4. RDS Module** (`terraform/modules/rds/`)
 - PostgreSQL 16 with KMS encryption
@@ -55,9 +55,7 @@ Complete infrastructure-as-code for deploying to AWS with high availability, aut
 - Auto-scaling storage (gp3)
 - CloudWatch alarms for CPU and storage
 - Parameter group with comprehensive logging
-- **Files**: main.tf (286 lines), variables.tf, outputs.tf
-
-- **Files**: main.tf (268 lines), variables.tf, outputs.tf
+- **Files**: main.tf, variables.tf, outputs.tf
 
 **5. S3 Module** (`terraform/modules/s3/`)
 - Encrypted S3 bucket with versioning
@@ -65,7 +63,7 @@ Complete infrastructure-as-code for deploying to AWS with high availability, aut
 - Block all public access
 - Logging to separate bucket
 - KMS encryption with auto-rotation
-- **Files**: main.tf (302 lines), variables.tf, outputs.tf
+- **Files**: main.tf, variables.tf, outputs.tf
 
 **6. ECS Module** (`terraform/modules/ecs/`) ⭐ Most Complex
 - ECS Cluster with Container Insights
@@ -76,7 +74,7 @@ Complete infrastructure-as-code for deploying to AWS with high availability, aut
 - Auto-scaling based on CPU (70%) and memory (80%)
 - CloudWatch log groups (30-day retention)
 - Health checks and deployment circuit breakers
-- **Files**: main.tf (1,780 lines), variables.tf (162 lines), outputs.tf (144 lines)
+- **Files**: main.tf, variables.tf, outputs.tf
 
 ### Deployment Sizes
 
@@ -121,19 +119,19 @@ Production-hardened Docker Compose for simple, single-server deployments with en
 ### Files Created
 
 #### Core Configuration
-- `docker-compose.prod.yml` (813 lines) - Production Docker Compose
-- `.env.example.prod` (353 lines) - Environment template with all settings
+- `docker-compose.prod.yml` - Production Docker Compose (Traefik, PostgreSQL, MinIO, six API services, frontend, nginx gateway, backup scheduler)
+- `deploy/env.example` - Environment template with all settings; copy to `.env.prod`
 - All services configured with production best practices
 
 #### Deployment Documentation
-- `deploy/README.md` (681 lines) - Complete deployment guide
+- `deploy/README.md` - Complete deployment guide
   - Prerequisites and server requirements
   - SSL/TLS setup with Let's Encrypt
   - Initial configuration and setup
   - Monitoring and logging
   - Troubleshooting guide
 
-- `deploy/QUICKSTART.md` (329 lines) - Quick reference guide
+- `deploy/QUICKSTART.md` - Quick reference guide
   - 4-phase deployment
   - Daily operations commands
   - Emergency procedures
@@ -145,7 +143,7 @@ Production-hardened Docker Compose for simple, single-server deployments with en
   - Rollback procedures
 
 #### Backup & Recovery
-- `deploy/backup.sh` (492 lines, executable) - Automated backup script
+- `deploy/backup.sh` (executable) - Automated backup script
   - PostgreSQL database dumps
   - MinIO/S3 file backup
   - Configuration backup
@@ -153,7 +151,7 @@ Production-hardened Docker Compose for simple, single-server deployments with en
   - S3 upload support
   - Slack/email notifications
 
-- `deploy/restore.sh` (614 lines, executable) - Disaster recovery script
+- `deploy/restore.sh` (executable) - Disaster recovery script
   - Backup validation
   - Interactive confirmation
   - Full restoration procedures
@@ -188,14 +186,19 @@ Production-hardened Docker Compose for simple, single-server deployments with en
 
 ```bash
 # Copy environment file
-cp .env.example.prod .env.prod
+cp deploy/env.example .env.prod
+chmod 600 .env.prod
 # Edit .env.prod with your configuration
+
+# Validate before deploying
+./deploy/preflight-check.sh
+npm run validate:production
 
 # Deploy
 docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
 
 # Run migrations
-docker compose -f docker-compose.prod.yml exec controls npm run prisma:migrate
+./deploy/db-migrate.sh migrate
 
 # Set up backups (cron)
 0 2 * * * /path/to/deploy/backup.sh
@@ -208,18 +211,16 @@ Deployment time: **5-10 minutes**
 ## 📊 Total Deliverables
 
 ### Code Statistics
-- **Terraform**: 3,136+ lines across 7 modules
-- **Docker Compose**: 813 lines production configuration
-- **Documentation**: 2,000+ lines across multiple guides
-- **Scripts**: 1,100+ lines (backup/restore automation)
-- **Total**: **7,000+ lines** of production-ready infrastructure code
+- **Terraform**: ~3,200 lines across 6 modules (vpc, security-groups, alb, rds, s3, ecs)
+- **Docker Compose**: `docker-compose.prod.yml` production configuration
+- **Documentation**: deployment guide, quick start and checklist under `deploy/`, plus `docs/DEPLOYMENT-RUNBOOK.md`
+- **Scripts**: `deploy/` automation (preflight, entrypoint, migrations, backup, verify-backup, restore)
 
 ### File Count
-- **Terraform files**: 21 files (modules + config)
-- **Docker Compose files**: 2 files
-- **Documentation files**: 5 files
-- **Scripts**: 2 files
-- **Total**: **30 files**
+- **Terraform files**: 22 (`*.tf` plus `terraform.tfvars.example`)
+- **Docker Compose files**: 3 (`docker-compose.yml`, `docker-compose.dev.yml`, `docker-compose.prod.yml`)
+- **Deploy documentation files**: 3 (`README.md`, `QUICKSTART.md`, `DEPLOYMENT_CHECKLIST.md`)
+- **Deploy scripts**: 6 (`preflight-check.sh`, `docker-entrypoint.sh`, `db-migrate.sh`, `backup.sh`, `verify-backup.sh`, `restore.sh`)
 
 ---
 
@@ -239,7 +240,7 @@ Deployment time: **5-10 minutes**
 ### Option 2: Docker Compose (Simple)
 1. Customer has a Linux server with Docker installed
 2. Clones your repository
-3. Copies `.env.example.prod` to `.env.prod`
+3. Copies `deploy/env.example` to `.env.prod`
 4. Edits configuration with their settings
 5. Runs `docker compose up`
 6. Application is running in 5-10 minutes
@@ -291,7 +292,7 @@ Deployment time: **5-10 minutes**
 
 ### For Your Business
 1. **Create container images** and push to Docker Hub or ECR
-2. **Set up Keycloak** (self-hosted or managed)
+2. **Create a Firebase project** with the Google sign-in provider enabled (hosted by Google - nothing to deploy or patch)
 3. **Test both deployment options** end-to-end
 4. **Create customer documentation** (customize READMEs with your branding)
 5. **Set up support infrastructure** (ticketing, monitoring)
@@ -303,7 +304,7 @@ Deployment time: **5-10 minutes**
 3. **Configure DNS** to point to load balancer
 4. **Set up SSL certificates** (automatic or manual)
 5. **Run database migrations**
-6. **Configure Keycloak** for authentication
+6. **Configure Firebase Authentication** (`FIREBASE_PROJECT_ID`, `ALLOWED_EMAIL_DOMAINS`, `VITE_FIREBASE_*`)
 7. **Create first organization** and admin user
 8. **Set up automated backups**
 9. **Go live**! 🎉
@@ -355,20 +356,27 @@ gigachad-grc/
 │   ├── variables.tf                  # Configuration variables
 │   ├── outputs.tf                    # Deployment outputs
 │   ├── terraform.tfvars.example      # Example configuration
-│   └── modules/                      # 7 reusable modules
-│       ├── vpc/
-│       ├── security-groups/
-│       ├── alb/
-│       ├── rds/
-│       ├── s3/
-│       └── ecs/
+│       └── modules/                  # 6 reusable modules
+│           ├── vpc/
+│           ├── security-groups/
+│           ├── alb/
+│           ├── rds/
+│           ├── s3/
+│           └── ecs/
 ├── docker-compose.prod.yml           # Production Docker Compose
-├── .env.example.prod                 # Production environment template
+├── docs/
+│   ├── DEPLOYMENT-RUNBOOK.md         # Authoritative step-by-step runbook
+│   └── HOSTING-REQUIREMENTS.md       # Accounts, sizing and costs
 └── deploy/
     ├── README.md                     # Complete deployment guide
     ├── QUICKSTART.md                 # Quick reference
     ├── DEPLOYMENT_CHECKLIST.md       # Step-by-step checklist
+    ├── env.example                   # Environment template (copy to .env.prod)
+    ├── preflight-check.sh            # Pre-deployment validation
+    ├── docker-entrypoint.sh          # Container entrypoint (migrations, checks)
+    ├── db-migrate.sh                 # Migration management
     ├── backup.sh                     # Automated backup script
+    ├── verify-backup.sh              # Backup integrity verification
     └── restore.sh                    # Disaster recovery script
 ```
 

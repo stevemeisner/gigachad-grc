@@ -203,26 +203,28 @@ variable "image_tag" {
   default     = "latest"
 }
 
-# Keycloak Configuration
-variable "keycloak_url" {
-  description = "Keycloak server URL"
+# Firebase Authentication Configuration
+# NOTE: AUTH_MODE is deliberately absent. Its only valid production value is unset --
+# FirebaseAuthGuard throws at boot when AUTH_MODE=demo and NODE_ENV=production.
+variable "firebase_project_id" {
+  description = "Firebase project ID used to verify ID tokens (required; services refuse to boot without it)"
   type        = string
 }
 
-variable "keycloak_realm" {
-  description = "Keycloak realm name"
+variable "allowed_email_domains" {
+  description = "Comma-separated list of email domains allowed to sign in (empty disables the domain check)"
   type        = string
-  default     = "grc"
+  default     = ""
 }
 
-variable "keycloak_client_id" {
-  description = "Keycloak client ID"
-  type        = string
-  default     = "grc-platform"
+variable "auth_auto_provision" {
+  description = "Automatically create a user record on first successful sign-in"
+  type        = bool
+  default     = false
 }
 
-variable "keycloak_client_secret" {
-  description = "Keycloak client secret"
+variable "auth_default_org_id" {
+  description = "Organization ID assigned to auto-provisioned users (empty to disable)"
   type        = string
-  sensitive   = true
+  default     = ""
 }

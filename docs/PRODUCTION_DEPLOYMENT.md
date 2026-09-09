@@ -10,7 +10,7 @@ This comprehensive guide covers everything you need to deploy GigaChad GRC to a 
 4. [Database Setup](#database-setup)
 5. [Backend Services Deployment](#backend-services-deployment)
 6. [Frontend Deployment](#frontend-deployment)
-7. [Authentication Setup (Keycloak)](#authentication-setup-keycloak)
+7. [Authentication Setup (Firebase)](#authentication-setup-firebase)
 8. [SSL/TLS Configuration](#ssltls-configuration)
 9. [Monitoring & Logging](#monitoring--logging)
 10. [Security Checklist](#security-checklist)
@@ -42,10 +42,11 @@ This comprehensive guide covers everything you need to deploy GigaChad GRC to a 
 ### Domain & DNS
 
 - Primary domain (e.g., `grc.yourcompany.com`)
-- Wildcard SSL certificate or certificates for:
-  - Main app: `grc.yourcompany.com`
-  - API: `api.grc.yourcompany.com` (optional, can use path-based routing)
-  - Auth: `auth.grc.yourcompany.com` (for Keycloak)
+- TLS certificate for the main app: `grc.yourcompany.com`. Traefik obtains
+  one from Let's Encrypt automatically
+- One `A` record is enough. There is **no auth subdomain** — identity comes
+  from Firebase Authentication, which the browser talks to directly, and the
+  API is served from the same host under `/api`
 
 ---
 
@@ -60,26 +61,38 @@ This comprehensive guide covers everything you need to deploy GigaChad GRC to a 
                                   ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                         Traefik Proxy                           │
-│                    (SSL termination, routing)                   │
+│                    (SSL termination, ACME)                      │
 └─────────────────────────────────────────────────────────────────┘
-          │                       │                       │
-          ▼                       ▼                       ▼
-┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
-│    Frontend     │  │   API Services  │  │    Keycloak     │
-│  (Nginx/Static) │  │   (NestJS x6)   │  │  (Auth Server)  │
-└─────────────────┘  └─────────────────┘  └─────────────────┘
-                              │
-                              ▼
-                    ┌─────────────────┐
-                    │   PostgreSQL    │
-                    │   (Database)    │
-                    └─────────────────┘
+                                  │
+                                  ▼
+┌─────────────────────────────────────────────────────────────────┐
+│               nginx Gateway  (gateway/nginx.conf)               │
+│         Single app entrypoint: SPA + 53 /api/* prefixes         │
+└─────────────────────────────────────────────────────────────────┘
+          │                       │
+          ▼                       ▼
+┌─────────────────┐     ┌─────────────────┐
+│    Frontend     │     │   API Services  │
+│ (nginx, static) │     │   (NestJS x6)   │
+└─────────────────┘     └─────────────────┘
+                                  │
+                    ┌─────────────┴─────────────┐
+                    ▼                           ▼
+          ┌─────────────────┐         ┌─────────────────┐
+          │   PostgreSQL    │         │      MinIO      │
+          └─────────────────┘         └─────────────────┘
 ```
+
+**No authentication server runs in this deployment.** The browser obtains an
+ID token from Firebase directly; each service verifies that token against
+Google's public keys and then reads the caller's role and organization from
+PostgreSQL. Nothing but Traefik publishes a port.
 
 ### Microservices
 
 | Service | Port | Purpose |
 |---------|------|---------|
+| Frontend | 3000 | Static SPA, served by nginx inside the container |
 | Controls | 3001 | Controls, Evidence, Dashboard, Risks |
 | Frameworks | 3002 | Frameworks, Assessments, Mappings |
 | Policies | 3004 | Policies, Document Management |
@@ -87,114 +100,165 @@ This comprehensive guide covers everything you need to deploy GigaChad GRC to a 
 | Trust | 3006 | Questionnaires, Trust Center |
 | Audit | 3007 | Audits, Findings |
 
+The port numbers above are the complete set. All six API services expose `GET /health`;
+controls additionally exposes `GET /api/system/health`. None of these ports is
+published in production — they are reachable only on the internal Docker
+network, through the gateway.
+
 ---
 
 ## Environment Configuration
 
 ### Production Environment File
 
-Create `.env.production` in the project root:
+`deploy/env.example` is the authoritative template — copy it rather than
+retyping this:
+
+```bash
+cp deploy/env.example .env.prod
+chmod 600 .env.prod
+ln -s .env.prod .env     # docker compose reads .env by default
+```
+
+The values you must set:
 
 ```bash
 # ===========================================
-# PRODUCTION ENVIRONMENT CONFIGURATION
+# General
 # ===========================================
-
-# Node Environment
 NODE_ENV=production
+APP_DOMAIN=grc.yourcompany.com        # no scheme; Traefik routes on this
+ACME_EMAIL=ops@yourcompany.com        # Let's Encrypt expiry warnings
+LOG_LEVEL=info
+TZ=UTC
+IMAGE_TAG=latest
 
 # ===========================================
-# Database Configuration
+# Database
 # ===========================================
-DATABASE_URL=postgresql://grc_user:YOUR_SECURE_PASSWORD@postgres:5432/gigachad_grc
-POSTGRES_USER=grc_user
-POSTGRES_PASSWORD=YOUR_SECURE_PASSWORD
+POSTGRES_USER=grc
+POSTGRES_PASSWORD=YOUR_SECURE_PASSWORD   # openssl rand -base64 32
 POSTGRES_DB=gigachad_grc
+# The services build DATABASE_URL from the three values above inside
+# docker-compose.prod.yml; set it explicitly only for an external database.
 
 # ===========================================
-# Authentication (Keycloak)
+# Authentication - Firebase Authentication (Google sign-in only)
 # ===========================================
-KEYCLOAK_URL=https://auth.yourcompany.com
-KEYCLOAK_REALM=gigachad-grc
-KEYCLOAK_CLIENT_ID=grc-backend
-KEYCLOAK_CLIENT_SECRET=YOUR_KEYCLOAK_SECRET
-KEYCLOAK_ADMIN_USER=admin
-KEYCLOAK_ADMIN_PASSWORD=YOUR_KEYCLOAK_ADMIN_PASSWORD
+# The ID token proves IDENTITY ONLY. Role, permissions and organization are
+# read from PostgreSQL on every request, never from token claims.
+
+# Firebase console > Project settings > General > Project ID.
+# Pins the accepted token issuer and audience; the guard will not start
+# without it.
+FIREBASE_PROJECT_ID=your-firebase-project-id
+
+# Comma-separated email domain allowlist. A Firebase ID token carries no `hd`
+# claim, so this is one of only two things restricting who can sign in.
+ALLOWED_EMAIL_DOMAINS=yourcompany.com
+
+# Leave false so a provisioned `users` row is required. If set true,
+# AUTH_DEFAULT_ORG_ID is mandatory and new accounts become `viewer`.
+AUTH_AUTO_PROVISION=false
+# AUTH_DEFAULT_ORG_ID=
+
+# AUTH_MODE=demo is the ONLY authentication bypass. The guard hard-throws
+# when NODE_ENV=production. Never set it here.
+# AUTH_MODE=
+
+# Browser Firebase config (build-time; see "Frontend Environment" below).
+VITE_FIREBASE_API_KEY=AIza...
+VITE_FIREBASE_AUTH_DOMAIN=your-firebase-project-id.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=your-firebase-project-id
 
 # ===========================================
-# Object Storage (S3-compatible)
+# Object Storage (MinIO, in-stack)
 # ===========================================
-STORAGE_PROVIDER=s3
-S3_BUCKET=grc-files
-S3_REGION=us-east-1
-S3_ACCESS_KEY=YOUR_S3_ACCESS_KEY
-S3_SECRET_KEY=YOUR_S3_SECRET_KEY
-S3_ENDPOINT=https://s3.amazonaws.com
-# For MinIO: S3_ENDPOINT=https://minio.yourcompany.com
+MINIO_ROOT_USER=grc-storage            # change from minioadmin
+MINIO_ROOT_PASSWORD=YOUR_SECURE_PASSWORD
+MINIO_BROWSER=off                      # keep the console off in production
+MINIO_DOMAIN=storage.grc.yourcompany.com
 
-# ===========================================
-# Error Tracking (Sentry)
-# ===========================================
-SENTRY_DSN=https://YOUR_SENTRY_DSN@sentry.io/PROJECT_ID
-SENTRY_ENVIRONMENT=production
-SENTRY_TRACES_SAMPLE_RATE=0.2
-
-# ===========================================
-# Email Configuration
-# ===========================================
-SMTP_HOST=smtp.yourprovider.com
-SMTP_PORT=587
-SMTP_USER=notifications@yourcompany.com
-SMTP_PASSWORD=YOUR_SMTP_PASSWORD
-SMTP_FROM=GigaChad GRC <notifications@yourcompany.com>
-
-# ===========================================
-# Application URLs
-# ===========================================
-APP_URL=https://grc.yourcompany.com
-API_URL=https://grc.yourcompany.com/api
+# For AWS S3 instead of the bundled MinIO, set these on the service
+# containers: STORAGE_TYPE=s3, S3_ENDPOINT, S3_PORT, S3_USE_SSL,
+# AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION, S3_BUCKET.
+# STORAGE_TYPE defaults to `local`; the MINIO_* names above take precedence
+# over the S3_* aliases wherever both are read.
 
 # ===========================================
 # Security
 # ===========================================
-# Generate with: openssl rand -base64 32
-JWT_SECRET=YOUR_GENERATED_JWT_SECRET
-ENCRYPTION_KEY=YOUR_GENERATED_ENCRYPTION_KEY
+# Encrypts stored integration credentials. Losing it makes them unreadable.
+ENCRYPTION_KEY=YOUR_GENERATED_KEY      # openssl rand -hex 32 (min 32 chars)
 
-# Rate Limiting
+# Reserved for internal service-to-service tokens; nothing signs with it
+# today, but the validation script requires a strong value.
+JWT_SECRET=YOUR_GENERATED_SECRET       # openssl rand -base64 64
+
+# Browser origins allowed to call the API. Scheme included, no trailing slash.
+CORS_ORIGINS=https://grc.yourcompany.com
+
+RATE_LIMIT_ENABLED=true
 RATE_LIMIT_MAX=100
 RATE_LIMIT_WINDOW_MS=60000
 
 # ===========================================
-# Optional: AI Features
+# Notifications
 # ===========================================
-OPENAI_API_KEY=sk-YOUR_OPENAI_KEY
-ANTHROPIC_API_KEY=YOUR_ANTHROPIC_KEY
-AI_ENABLED=true
+# `console` logs emails instead of sending them. SMTP/SendGrid/SES
+# credentials for live delivery are configured in the application
+# (Settings -> Notifications) and stored encrypted, not here.
+EMAIL_PROVIDER=console
+EMAIL_FROM=noreply@grc.yourcompany.com
+EMAIL_FROM_NAME=GigaChad GRC
+
+# Absolute base URL used in notification links.
+APP_URL=https://grc.yourcompany.com
+
+# ===========================================
+# Backups
+# ===========================================
+BACKUP_RETENTION_DAYS=30
+
+# ===========================================
+# Proxy
+# ===========================================
+TRAEFIK_LOG_LEVEL=WARN
 ```
+
+AI provider keys are **not** environment variables: they are entered in the
+application (Settings → AI Configuration) and stored encrypted with
+`ENCRYPTION_KEY`.
 
 ### Frontend Environment
 
-Create `frontend/.env.production`:
+Every `VITE_*` value is **build-time**: Vite compiles it into the JavaScript
+bundle, so changing one requires rebuilding the `frontend` image rather than
+restarting it.
+
+`docker-compose.prod.yml` wires exactly three of them through to
+`frontend/Dockerfile` as build arguments, read from `.env.prod`:
 
 ```bash
-# API Configuration
-VITE_API_URL=https://grc.yourcompany.com
-
-# Authentication
-VITE_KEYCLOAK_URL=https://auth.yourcompany.com
-VITE_KEYCLOAK_REALM=gigachad-grc
-VITE_KEYCLOAK_CLIENT_ID=grc-frontend
-
-# Error Tracking
-VITE_ERROR_TRACKING_ENABLED=true
-VITE_SENTRY_DSN=https://YOUR_FRONTEND_SENTRY_DSN@sentry.io/PROJECT_ID
-VITE_APP_VERSION=${npm_package_version}
-
-# Feature Flags
-VITE_ENABLE_AI_FEATURES=true
-VITE_ENABLE_MCP_SERVERS=false
+# The Web API key is a PUBLIC client identifier, not a secret: it ships in
+# the browser bundle by design.
+VITE_FIREBASE_API_KEY=AIza...
+VITE_FIREBASE_AUTH_DOMAIN=your-firebase-project-id.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=your-firebase-project-id
 ```
+
+Those three are all the browser needs: the SPA and the API are served from
+the same origin through the gateway, so no API URL has to be configured. To
+set any other `VITE_*` value for a container build you must add it to both
+the `frontend.build.args` block in `docker-compose.prod.yml` and the `ARG`/
+`ENV` pair in `frontend/Dockerfile`. The optional ones are:
+
+| Variable | Effect |
+|----------|--------|
+| `VITE_API_URL` | Absolute API base URL, if not same-origin |
+| `VITE_ALLOWED_EMAIL_DOMAIN` | Google `hd` account-chooser hint. Restricts nothing — the real check is the backend's `ALLOWED_EMAIL_DOMAINS` |
+| `VITE_ERROR_TRACKING_ENABLED`, `VITE_SENTRY_DSN`, `VITE_APP_VERSION`, `VITE_ENV` | Sentry error tracking |
+| `VITE_ENABLE_*_MODULE` | Deployment default for each module; a saved per-organization configuration overrides it |
 
 ---
 
@@ -255,116 +319,46 @@ echo "Backup completed: $BACKUP_FILE"
 
 ### Docker Compose Production
 
-Create `docker-compose.prod.yml`:
+`docker-compose.prod.yml` already exists in the repository — do not write your
+own. It defines:
 
-```yaml
-version: '3.8'
+| Service | Role |
+|---------|------|
+| `traefik` | TLS termination and Let's Encrypt (`ACME_EMAIL`), the only container publishing ports 80/443 |
+| `gateway` | nginx, `gateway/nginx.conf`; the single public entrypoint for the app. Traefik routes `Host(${APP_DOMAIN})` here and nowhere else |
+| `frontend` | The built SPA served by nginx on 3000 |
+| `controls`, `frameworks`, `policies`, `tprm`, `trust`, `audit` | The six NestJS services |
+| `postgres` | PostgreSQL, no published port |
+| `minio` | Object storage. Also carries a Traefik router for `storage.${APP_DOMAIN}` (the S3 API only), which resolves only if you create that DNS record. There is no console router — `MINIO_BROWSER` defaults to `off` and port 9001 is not published |
+| `backup-scheduler` | Periodic `pg_dump`, honouring `BACKUP_RETENTION_DAYS` |
 
-services:
-  traefik:
-    image: traefik:v2.10
-    container_name: grc-traefik
-    command:
-      - "--api.dashboard=true"
-      - "--providers.docker=true"
-      - "--providers.docker.exposedbydefault=false"
-      - "--entrypoints.web.address=:80"
-      - "--entrypoints.websecure.address=:443"
-      - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
-      - "--certificatesresolvers.letsencrypt.acme.email=admin@yourcompany.com"
-      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./letsencrypt:/letsencrypt
-    networks:
-      - grc-network
-    restart: unless-stopped
+Two networks: `grc-dmz`, shared by Traefik, the gateway and MinIO, and
+`grc-network`, which is `internal: true` — so PostgreSQL and the six API
+services are not reachable from outside the host at all. Every service
+container is `read_only` with `no-new-privileges`, all capabilities dropped,
+and a `GET /health` healthcheck that the gateway's `depends_on` waits for.
 
-  postgres:
-    image: postgres:15-alpine
-    container_name: grc-postgres
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./database/init:/docker-entrypoint-initdb.d
-    networks:
-      - grc-network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  controls:
-    build:
-      context: ./services/controls
-      dockerfile: Dockerfile
-    container_name: grc-controls
-    environment:
-      - NODE_ENV=production
-      - DATABASE_URL=${DATABASE_URL}
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks:
-      - grc-network
-    restart: unless-stopped
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.controls.rule=Host(`grc.yourcompany.com`) && PathPrefix(`/api/controls`, `/api/evidence`, `/api/dashboard`, `/api/risks`)"
-      - "traefik.http.routers.controls.tls.certresolver=letsencrypt"
-      - "traefik.http.services.controls.loadbalancer.server.port=3001"
-
-  # ... (similar configuration for other services)
-
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-      args:
-        - VITE_API_URL=${APP_URL}
-        - VITE_KEYCLOAK_URL=${KEYCLOAK_URL}
-    container_name: grc-frontend
-    networks:
-      - grc-network
-    restart: unless-stopped
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.frontend.rule=Host(`grc.yourcompany.com`)"
-      - "traefik.http.routers.frontend.tls.certresolver=letsencrypt"
-      - "traefik.http.services.frontend.loadbalancer.server.port=80"
-
-networks:
-  grc-network:
-    driver: bridge
-
-volumes:
-  postgres_data:
-```
+Because the gateway owns routing, individual API services carry no Traefik
+`PathPrefix` labels. Adding an `/api/*` prefix means editing
+`gateway/nginx.conf` **and** the Vite dev proxy in `frontend/vite.config.ts`
+together — a prefix present in only one works in only one environment.
 
 ### Deployment Commands
 
 ```bash
-# Pull latest images and rebuild
-docker compose -f docker-compose.prod.yml pull
-docker compose -f docker-compose.prod.yml build --no-cache
-
-# Deploy with zero downtime
-docker compose -f docker-compose.prod.yml up -d --remove-orphans
+# Build and start everything (first build takes 25-60 minutes on a small VM)
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
 
 # View logs
-docker compose -f docker-compose.prod.yml logs -f
+docker compose -f docker-compose.prod.yml --env-file .env.prod logs -f
 
-# Scale services
-docker compose -f docker-compose.prod.yml up -d --scale controls=3
+# Status
+docker compose -f docker-compose.prod.yml --env-file .env.prod ps
 ```
+
+See [Deployment Runbook](./DEPLOYMENT-RUNBOOK.md) for the full ordered
+procedure, including applying the Prisma schema and creating the first
+administrator.
 
 ---
 
@@ -449,65 +443,96 @@ server {
 
 ---
 
-## Authentication Setup (Keycloak)
+## Authentication Setup (Firebase)
 
-### 1. Import Realm Configuration
+Identity is Firebase Authentication with Google sign-in. No authentication
+server is deployed with the application, and there is no server-side identity
+configuration in this repository to import.
 
-```bash
-# Copy the realm export to Keycloak
-docker cp auth/realm-export.json grc-keycloak:/tmp/
+### 1. Create the Firebase project
 
-# Import via CLI
-docker exec grc-keycloak /opt/keycloak/bin/kc.sh import --file /tmp/realm-export.json
+In the [Firebase console](https://console.firebase.google.com/):
+
+1. **Add project**. Decline Google Analytics — it is not used.
+2. **Build → Authentication → Get started**, then on the **Sign-in method**
+   tab enable **Google** and set a public-facing name and support email.
+   **Enable nothing else**: the backend rejects any token whose
+   `sign_in_provider` is not `google.com`, so a second provider only produces
+   confusing failures.
+3. **Authentication → Settings → Authorized domains**: add
+   `grc.yourcompany.com`. This names the web origins allowed to *complete* a
+   sign-in — an anti-phishing check. It does not decide who may sign in.
+4. **Project settings → General**: register a web app if **Your apps** is
+   empty, then collect `Project ID`, `apiKey` and `authDomain` for
+   `FIREBASE_PROJECT_ID`, `VITE_FIREBASE_API_KEY`,
+   `VITE_FIREBASE_AUTH_DOMAIN` and `VITE_FIREBASE_PROJECT_ID`.
+
+**No user import.** Firebase does not need a copy of your staff list; anyone
+with a Google account can obtain a token from your project. What makes someone
+a user of *this application* is step 2 below.
+
+### 2. Restrict who can sign in
+
+A Firebase ID token carries no `hd` (hosted domain) claim, so nothing in the
+token proves the holder belongs to your Workspace. Two server-side layers do:
+
+| Layer | Variable | Behaviour |
+|-------|----------|-----------|
+| Email domain allowlist | `ALLOWED_EMAIL_DOMAINS` | Comma-separated. A mismatch is `403`. Empty disables the check — never in production |
+| A provisioned `users` row | `AUTH_AUTO_PROVISION` (default `false`) | An address with no matching row is refused `401`, whatever domain it came from |
+
+`VITE_ALLOWED_EMAIL_DOMAIN` (singular, frontend) restricts nothing — it only
+pre-filters Google's account chooser.
+
+`AUTH_AUTO_PROVISION=true` requires `AUTH_DEFAULT_ORG_ID`; the guard refuses
+to start otherwise, and auto-provisioned accounts become `viewer`.
+
+### 3. Create the first administrator
+
+**Nothing creates the first account for you** — there is no invite email, no
+self-registration and no first-run wizard. Until a `users` row exists every
+request is refused with:
+
+```
+401  No account is provisioned for you@example.com. Ask an administrator to invite you.
 ```
 
-### 2. Configure Production Settings
-
-In Keycloak Admin Console (`https://auth.yourcompany.com`):
-
-1. **Realm Settings > General**
-   - Display name: GigaChad GRC
-   - Enabled: ON
-   - User registration: OFF (unless needed)
-
-2. **Realm Settings > Login**
-   - Require SSL: All requests
-   - Remember Me: ON
-   - Login timeout: 30 minutes
-
-3. **Clients > grc-frontend**
-   - Valid Redirect URIs: `https://grc.yourcompany.com/*`
-   - Web Origins: `https://grc.yourcompany.com`
-   - Access Type: public
-
-4. **Clients > grc-backend**
-   - Access Type: confidential
-   - Service Accounts Enabled: ON
-
-### 3. Create Initial Admin User
+Insert the organization and the administrator directly, after the schema has
+been applied. You do not need the person's Firebase UID: insert a placeholder
+`external_id` and the guard claims the row by verified email on first
+sign-in, rewriting `external_id` to the real Firebase subject.
 
 ```bash
-# Via Keycloak CLI
-docker exec grc-keycloak /opt/keycloak/bin/kcadm.sh create users \
-  -r gigachad-grc \
-  -s username=admin@yourcompany.com \
-  -s email=admin@yourcompany.com \
-  -s enabled=true \
-  -s firstName=Admin \
-  -s lastName=User
+docker compose -f docker-compose.prod.yml --env-file .env.prod \
+  exec -T postgres psql -U grc -d gigachad_grc <<'SQL'
+INSERT INTO organizations (id, name, slug, updated_at)
+VALUES (gen_random_uuid(), 'Acme Corporation', 'acme', NOW())
+ON CONFLICT (slug) DO NOTHING;
 
-# Set password
-docker exec grc-keycloak /opt/keycloak/bin/kcadm.sh set-password \
-  -r gigachad-grc \
-  --username admin@yourcompany.com \
-  --new-password "SECURE_PASSWORD"
-
-# Assign admin role
-docker exec grc-keycloak /opt/keycloak/bin/kcadm.sh add-roles \
-  -r gigachad-grc \
-  --uusername admin@yourcompany.com \
-  --rolename admin
+INSERT INTO users (
+    id, external_id, email, first_name, last_name, display_name,
+    role, status, organization_id, updated_at
+)
+SELECT
+    gen_random_uuid(),
+    'pending:jane.doe@example.com',   -- replaced on first sign-in
+    'jane.doe@example.com',           -- MUST match the Google address exactly
+    'Jane', 'Doe', 'Jane Doe',
+    'admin', 'active',
+    o.id, NOW()
+FROM organizations o
+WHERE o.slug = 'acme'
+ON CONFLICT (external_id) DO NOTHING;
+SQL
 ```
+
+Set `role` explicitly: the Prisma schema defaults it to `viewer`, so omitting
+it leaves the database describing your administrator as a viewer. Sign-in
+works within 30 seconds — the guard caches a resolved identity for that long
+and there is nothing to restart.
+
+See [Deployment Runbook](./DEPLOYMENT-RUNBOOK.md#6-create-the-first-administrator)
+for the same procedure with the real Firebase UID instead of a placeholder.
 
 ---
 
@@ -586,11 +611,16 @@ Logs are shipped to Loki via Promtail. View in Grafana:
 ### Pre-Deployment
 
 - [ ] Change all default passwords
-- [ ] Generate new JWT_SECRET: `openssl rand -base64 32`
-- [ ] Generate new ENCRYPTION_KEY: `openssl rand -base64 32`
-- [ ] Review and update CORS settings
+- [ ] Generate new JWT_SECRET: `openssl rand -base64 64`
+- [ ] Generate new ENCRYPTION_KEY: `openssl rand -hex 32` (min 32 chars)
+- [ ] `FIREBASE_PROJECT_ID` set; Google is the only enabled sign-in method
+- [ ] `ALLOWED_EMAIL_DOMAINS` set — never empty in production
+- [ ] `AUTH_MODE` unset, and `AUTH_AUTO_PROVISION=false` unless
+      `AUTH_DEFAULT_ORG_ID` is also set
+- [ ] `npm run validate:production` passes
+- [ ] Review and update CORS settings (`CORS_ORIGINS`)
 - [ ] Enable rate limiting
-- [ ] Configure firewall rules
+- [ ] Configure firewall rules (only 22, 80, 443 need to be open)
 - [ ] Set up WAF if available
 
 ### Post-Deployment
@@ -632,19 +662,39 @@ docker exec grc-controls npx prisma db pull
 #### 2. Authentication Not Working
 
 ```bash
-# Check Keycloak is accessible
-curl -s https://auth.yourcompany.com/realms/gigachad-grc/.well-known/openid-configuration
+# Is the project id the services expect the one your tokens come from?
+docker exec grc-controls env | grep FIREBASE_PROJECT_ID
 
-# Check client configuration
-# In Keycloak Admin > Clients > grc-frontend > Settings
-# Verify Valid Redirect URIs and Web Origins
+# Are the two restriction layers set as intended?
+docker exec grc-controls env | grep -E 'ALLOWED_EMAIL_DOMAINS|AUTH_AUTO_PROVISION|AUTH_MODE'
+
+# Does the person have a users row, and is it active?
+docker compose -f docker-compose.prod.yml --env-file .env.prod \
+  exec -T postgres psql -U grc -d gigachad_grc \
+  -c "SELECT email, role, status, external_id FROM users;"
 ```
+
+Read the error message — each rejection names its own cause:
+
+| Response | Meaning |
+|----------|---------|
+| `401 No account is provisioned for <email>` | Token verified; no `users` row. Insert one, or set `AUTH_AUTO_PROVISION=true` |
+| `403 Email domain "<d>" is not permitted` | `ALLOWED_EMAIL_DOMAINS` does not include that domain |
+| `401 Sign-in provider "<p>" is not accepted` | A provider other than Google is enabled in Firebase |
+| `401 Token email address is not verified` | The Google account has no verified address |
+| `403 This account is <status>` | The `users` row exists but is not `active` |
+| `401 Firebase ID token is invalid: ... audience` | The bundle was built with a different `VITE_FIREBASE_PROJECT_ID` than the backend's `FIREBASE_PROJECT_ID` |
+
+If the browser never gets a token at all, check that the app's hostname is in
+Firebase → Authentication → Settings → Authorized domains, and that the
+`frontend` image was rebuilt after any `VITE_FIREBASE_*` change — those are
+compiled into the bundle.
 
 #### 3. API Requests Failing
 
 ```bash
 # Check service health
-curl -s https://grc.yourcompany.com/api/health
+curl -s https://grc.yourcompany.com/api/system/health
 
 # Check Traefik routing
 docker logs grc-traefik | grep error
@@ -721,7 +771,7 @@ git checkout v1.x.x  # previous working version
 docker compose -f docker-compose.prod.yml up -d --build
 
 # 5. Verify rollback
-curl -s https://grc.yourcompany.com/api/health
+curl -s https://grc.yourcompany.com/api/system/health
 ```
 
 ### Health Monitoring Script
@@ -732,10 +782,11 @@ Save as `scripts/health-check.sh`:
 #!/bin/bash
 # Production Health Check Script
 
+# /healthz is the gateway's own liveness route; /api/system/health is the
+# controls service's aggregate check, reached through the gateway.
 ENDPOINTS=(
-    "https://grc.yourcompany.com/api/health"
-    "https://grc.yourcompany.com/api/controls/health"
-    "https://auth.yourcompany.com/realms/gigachad-grc"
+    "https://grc.yourcompany.com/healthz"
+    "https://grc.yourcompany.com/api/system/health"
 )
 
 SLACK_WEBHOOK="https://hooks.slack.com/services/YOUR/WEBHOOK/URL"

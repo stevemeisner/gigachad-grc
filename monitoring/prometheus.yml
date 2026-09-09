@@ -1,5 +1,11 @@
-# Prometheus configuration for GigaChad GRC Platform
-# This file configures scraping targets and alerting rules
+# Prometheus configuration for the GigaChad GRC Platform
+# Mounted by the `prometheus` service in docker-compose.yml (the local stack).
+# Grafana in that stack reads it through the provisioned datasource and is
+# published on http://localhost:3003.
+#
+# Only endpoints that actually serve Prometheus text format are enabled;
+# targets that do not exist yet are left commented out with the reason, so
+# every job here should show up=1.
 
 global:
   scrape_interval: 15s
@@ -7,7 +13,8 @@ global:
   external_labels:
     monitor: 'gigachad-grc'
 
-# Alertmanager configuration (optional - enable when alertmanager is configured)
+# Alertmanager configuration (optional - enable when alertmanager is configured;
+# docker-compose.yml does not define an alertmanager service)
 # alerting:
 #   alertmanagers:
 #     - static_configs:
@@ -25,55 +32,75 @@ scrape_configs:
       - targets: ['localhost:9090']
     metrics_path: /metrics
 
-  # Controls Service
+  # Controls Service - the only API service that registers PrometheusModule
+  # (services/controls/src/app.module.ts). No global route prefix is set, so
+  # the path is /metrics, not /api/metrics.
   - job_name: 'controls-service'
     static_configs:
       - targets: ['controls:3001']
-    metrics_path: /api/metrics
-    scrape_interval: 30s
-    scrape_timeout: 10s
-
-  # Audit Service
-  - job_name: 'audit-service'
-    static_configs:
-      - targets: ['audit:3007']
-    metrics_path: /api/metrics
-    scrape_interval: 30s
-    scrape_timeout: 10s
-
-  # Risk Service (if separate)
-  # - job_name: 'risk-service'
-  #   static_configs:
-  #     - targets: ['risk:3003']
-  #   metrics_path: /api/metrics
-
-  # Auth Service (Keycloak metrics)
-  - job_name: 'keycloak'
-    static_configs:
-      - targets: ['keycloak:8080']
     metrics_path: /metrics
-    scrape_interval: 60s
+    scrape_interval: 30s
+    scrape_timeout: 10s
 
-  # PostgreSQL Exporter (requires postgres_exporter sidecar)
+  # ---------------------------------------------------------------------------
+  # Targets that do not exist yet
+  # ---------------------------------------------------------------------------
+  # The other five services expose GET /health (JSON, from
+  # services/shared/src/health/health.controller.ts) but no Prometheus
+  # endpoint - scraping it fails to parse. Uncomment a block once
+  # PrometheusModule.register() is added to that service's app.module.ts.
+  # Ports below are the real ones from docker-compose.yml; there is no
+  # service on 3003 (that host port belongs to Grafana).
+  #
+  # - job_name: 'frameworks-service'
+  #   static_configs:
+  #     - targets: ['frameworks:3002']
+  #   metrics_path: /metrics
+  #
+  # - job_name: 'policies-service'
+  #   static_configs:
+  #     - targets: ['policies:3004']
+  #   metrics_path: /metrics
+  #
+  # - job_name: 'tprm-service'
+  #   static_configs:
+  #     - targets: ['tprm:3005']
+  #   metrics_path: /metrics
+  #
+  # - job_name: 'trust-service'
+  #   static_configs:
+  #     - targets: ['trust:3006']
+  #   metrics_path: /metrics
+  #
+  # - job_name: 'audit-service'
+  #   static_configs:
+  #     - targets: ['audit:3007']
+  #   metrics_path: /metrics
+  #
+  # PostgreSQL Exporter (requires a postgres_exporter sidecar; postgres:5432
+  # speaks the Postgres wire protocol, not HTTP)
   # - job_name: 'postgres'
   #   static_configs:
   #     - targets: ['postgres-exporter:9187']
-
-  # MinIO Metrics
-  - job_name: 'minio'
-    static_configs:
-      - targets: ['minio:9000']
-    metrics_path: /minio/v2/metrics/cluster
-    scrape_interval: 60s
-
-  # Traefik Metrics
-  - job_name: 'traefik'
-    static_configs:
-      - targets: ['traefik:8082']
-    metrics_path: /metrics
-    scrape_interval: 30s
+  #
+  # MinIO refuses unauthenticated metrics scrapes unless
+  # MINIO_PROMETHEUS_AUTH_TYPE=public is set on the service.
+  # docker-compose.prod.yml sets it; docker-compose.yml does not.
+  # - job_name: 'minio'
+  #   static_configs:
+  #     - targets: ['minio:9000']
+  #   metrics_path: /minio/v2/metrics/cluster
+  #   scrape_interval: 60s
+  #
+  # Traefik exposes no Prometheus metrics: gateway/traefik.yml enables only
+  # `api` and `ping`, with no `metrics:` section, so /metrics 404s on the
+  # dashboard port (container 8080, published as 8090 by docker-compose.yml).
+  # Add `metrics: {prometheus: {}}` to gateway/traefik.yml first.
+  # - job_name: 'traefik'
+  #   static_configs:
+  #     - targets: ['traefik:8080']
+  #   metrics_path: /metrics
 
 # Remote write configuration (optional - for long-term storage)
 # remote_write:
 #   - url: "http://thanos-receive:19291/api/v1/receive"
-

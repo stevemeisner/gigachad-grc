@@ -1,5 +1,10 @@
 # GigaChad GRC Platform - AWS Infrastructure
-# This Terraform configuration deploys the complete GRC platform to AWS
+#
+# UNMAINTAINED ALTERNATIVE DEPLOYMENT PATH.
+# The supported production deployment is a single VM running docker-compose.prod.yml
+# behind the nginx gateway, documented in docs/DEPLOYMENT-RUNBOOK.md.
+# This Terraform has never been applied against the current codebase; treat it as a
+# starting point that needs verification, not as a working deployment.
 
 terraform {
   required_version = ">= 1.5.0"
@@ -161,11 +166,13 @@ module "ecs" {
   task_cpu             = var.ecs_task_cpu
   task_memory          = var.ecs_task_memory
 
-  # Keycloak configuration
-  keycloak_url         = var.keycloak_url
-  keycloak_realm       = var.keycloak_realm
-  keycloak_client_id   = var.keycloak_client_id
-  keycloak_client_secret = var.keycloak_client_secret
+  # Firebase Authentication configuration
+  # AUTH_MODE is intentionally not passed: its only valid production value is unset,
+  # and FirebaseAuthGuard throws at boot when AUTH_MODE=demo and NODE_ENV=production.
+  firebase_project_id   = var.firebase_project_id
+  allowed_email_domains = var.allowed_email_domains
+  auth_auto_provision   = var.auth_auto_provision
+  auth_default_org_id   = var.auth_default_org_id
 
   tags = local.common_tags
 }

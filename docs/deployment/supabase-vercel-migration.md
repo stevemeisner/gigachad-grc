@@ -1,6 +1,16 @@
 # Supabase + Vercel Migration Guide
 
-This guide covers migrating GigaChad GRC from the Docker-based microservices architecture to Supabase (database/storage) + Vercel (frontend/serverless API) with Okta SSO authentication.
+This guide covers migrating GigaChad GRC from its current Docker-based
+microservices architecture to Supabase (database/storage) + Vercel
+(frontend/serverless API) with Okta SSO authentication.
+
+> **Status: proposal.** Nothing here has been built. The repository ships no
+> Vercel or Supabase configuration, and the deployment that exists today is the
+> single-server Docker Compose procedure in
+> [../DEPLOYMENT-RUNBOOK.md](../DEPLOYMENT-RUNBOOK.md). Note also that this
+> proposal replaces the platform's current identity provider (Firebase
+> Authentication with Google sign-in) with Okta — that is a deliberate part of
+> the proposal, not a description of today.
 
 ## Table of Contents
 
@@ -18,13 +28,15 @@ This guide covers migrating GigaChad GRC from the Docker-based microservices arc
 
 ## Architecture Overview
 
-### Previous Architecture (Docker)
-- 6 NestJS microservices (controls, frameworks, policies, tprm, trust, audit)
-- PostgreSQL database
+### Current Architecture (Docker)
+- 6 NestJS services (controls, frameworks, policies, tprm, trust, audit)
+- PostgreSQL, with one shared Prisma schema (129 models)
 - MinIO for file storage
-- Keycloak for authentication
-- Traefik for API gateway
-- Docker Compose orchestration
+- Firebase Authentication (Google sign-in only) for identity; roles,
+  permissions and organization come from PostgreSQL
+- nginx (`gateway/nginx.conf`) as the single public entrypoint, with Traefik in
+  front of it for TLS
+- Docker Compose orchestration (`docker-compose.prod.yml`)
 
 ### New Architecture (Supabase + Vercel)
 - Vercel: React frontend + Serverless API functions
@@ -38,7 +50,7 @@ This guide covers migrating GigaChad GRC from the Docker-based microservices arc
 | Compute | $50-200/mo (cloud VMs) | $20/mo (Vercel Pro) |
 | Database | Included in VM | $25/mo (Supabase Pro) |
 | Storage | Included (MinIO) | Included (Supabase) |
-| Auth | Included (Keycloak) | $0 (Okta existing) |
+| Auth | Included (Firebase — free tier covers Google sign-in) | $0 (Okta existing) |
 | **Total** | **$50-200/mo + maintenance** | **~$45/mo** |
 
 ---
@@ -445,7 +457,8 @@ If you need to rollback to the Docker architecture:
 
 1. Update DNS to point to your Docker host
 2. Restore database from backup
-3. Start Docker services: `docker-compose up -d`
+3. Start the Docker services:
+   `docker compose -f docker-compose.prod.yml --env-file .env.prod up -d`
 4. Update frontend `.env` to use legacy API endpoints
 
 ---

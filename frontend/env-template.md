@@ -132,9 +132,10 @@ VITE_ENABLE_QUESTIONNAIRES=true
 # Development Options
 # ========================================
 
-# Enable development authentication bypass
-# WARNING: Never enable in production!
-VITE_ENABLE_DEV_AUTH=false
+# Demo sign-in bypass. Only has an effect in a dev server: the button is
+# gated on import.meta.env.DEV, and a production build additionally throws
+# at start-up if this is set to 'demo'. Leave unset for real deployments.
+# VITE_AUTH_MODE=demo
 
 # Log level for frontend
 # Options: debug, info, warn, error
@@ -205,7 +206,6 @@ VITE_ERROR_TRACKING_ENABLED=true
 VITE_SENTRY_DSN=https://your-dsn@sentry.io/project
 VITE_APP_VERSION=1.0.0
 VITE_ENV=production
-VITE_ENABLE_DEV_AUTH=false
 VITE_LOG_LEVEL=warn
 
 # Module Configuration

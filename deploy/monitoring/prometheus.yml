@@ -1,6 +1,16 @@
 # =============================================================================
 # Prometheus Configuration for GigaChad GRC
 # =============================================================================
+# Used by deploy/monitoring/docker-compose.monitoring.yml, which is layered on
+# top of docker-compose.prod.yml:
+#   docker compose -f docker-compose.yml \
+#     -f deploy/monitoring/docker-compose.monitoring.yml up -d
+#
+# Every job below is a target that actually serves Prometheus text format.
+# alerts.yml alerts on `up == 0` for ALL jobs, so a target that 404s or returns
+# JSON would page forever - endpoints that do not exist yet are left commented
+# out with the reason instead.
+# =============================================================================
 
 global:
   scrape_interval: 15s
@@ -31,99 +41,85 @@ scrape_configs:
     static_configs:
       - targets: ['node-exporter:9100']
 
-  # cAdvisor - Container metrics
+  # cAdvisor - Container metrics (cAdvisor's own HTTP port is 8080)
   - job_name: 'cadvisor'
     static_configs:
       - targets: ['cadvisor:8080']
 
-  # PostgreSQL
-  - job_name: 'postgres'
-    static_configs:
-      - targets: ['postgres:5432']
-    metrics_path: /metrics
-    relabel_configs:
-      - source_labels: [__address__]
-        target_label: instance
-        regex: '([^:]+):\d+'
-        replacement: '${1}'
-
-  # GRC Services - Health endpoints
+  # Controls service - the only API service that registers PrometheusModule
+  # (services/controls/src/app.module.ts). No global route prefix is set, so
+  # the path is /metrics. Exposes collectors_runs_total,
+  # scheduled_notifications_runs_total and mcp_workflow_executions_total,
+  # which alerts.yml depends on.
   - job_name: 'grc-controls'
-    metrics_path: /health
+    metrics_path: /metrics
     static_configs:
       - targets: ['controls:3001']
     relabel_configs:
       - target_label: service
         replacement: 'controls'
 
-  - job_name: 'grc-frameworks'
-    metrics_path: /health
-    static_configs:
-      - targets: ['frameworks:3002']
-    relabel_configs:
-      - target_label: service
-        replacement: 'frameworks'
-
-  - job_name: 'grc-policies'
-    metrics_path: /health
-    static_configs:
-      - targets: ['policies:3004']
-    relabel_configs:
-      - target_label: service
-        replacement: 'policies'
-
-  - job_name: 'grc-tprm'
-    metrics_path: /health
-    static_configs:
-      - targets: ['tprm:3005']
-    relabel_configs:
-      - target_label: service
-        replacement: 'tprm'
-
-  - job_name: 'grc-trust'
-    metrics_path: /health
-    static_configs:
-      - targets: ['trust:3006']
-    relabel_configs:
-      - target_label: service
-        replacement: 'trust'
-
-  - job_name: 'grc-audit'
-    metrics_path: /health
-    static_configs:
-      - targets: ['audit:3007']
-    relabel_configs:
-      - target_label: service
-        replacement: 'audit'
-
-  # Keycloak
-  - job_name: 'keycloak'
-    metrics_path: /auth/realms/master/metrics
-    static_configs:
-      - targets: ['keycloak:8080']
-
-  # MinIO
+  # MinIO - requires MINIO_PROMETHEUS_AUTH_TYPE=public, which
+  # docker-compose.prod.yml sets on the minio service
   - job_name: 'minio'
     metrics_path: /minio/v2/metrics/cluster
     static_configs:
       - targets: ['minio:9000']
 
-  # Traefik
-  - job_name: 'traefik'
-    static_configs:
-      - targets: ['traefik:8080']
-
-  # Controls service - Prometheus metrics
-  # Exposes application-level metrics such as collectors_runs_total,
-  # scheduled_notifications_runs_total, and mcp_workflow_executions_total.
-  - job_name: 'grc-controls-metrics'
-    metrics_path: /metrics
-    static_configs:
-      - targets: ['controls:3001']
-    relabel_configs:
-      - target_label: service
-        replacement: 'controls'
-
-
-
-
+  # ---------------------------------------------------------------------------
+  # Targets that do not exist yet
+  # ---------------------------------------------------------------------------
+  # The other five API services expose GET /health (JSON, from
+  # services/shared/src/health/health.controller.ts) but no Prometheus
+  # endpoint. Uncomment a block once PrometheusModule.register() is added to
+  # that service's app.module.ts - the ports below are the real ones from
+  # docker-compose.prod.yml. There is no service on 3003.
+  #
+  # - job_name: 'grc-frameworks'
+  #   metrics_path: /metrics
+  #   static_configs:
+  #     - targets: ['frameworks:3002']
+  #
+  # - job_name: 'grc-policies'
+  #   metrics_path: /metrics
+  #   static_configs:
+  #     - targets: ['policies:3004']
+  #
+  # - job_name: 'grc-tprm'
+  #   metrics_path: /metrics
+  #   static_configs:
+  #     - targets: ['tprm:3005']
+  #
+  # - job_name: 'grc-trust'
+  #   metrics_path: /metrics
+  #   static_configs:
+  #     - targets: ['trust:3006']
+  #
+  # - job_name: 'grc-audit'
+  #   metrics_path: /metrics
+  #   static_configs:
+  #     - targets: ['audit:3007']
+  #
+  # PostgreSQL speaks its own wire protocol, not HTTP: scraping postgres:5432
+  # can never succeed. The pg_* series used by alerts.yml need a
+  # postgres_exporter sidecar, which the monitoring compose file does not
+  # currently define.
+  #
+  # - job_name: 'postgres'
+  #   static_configs:
+  #     - targets: ['postgres-exporter:9187']
+  #
+  # Traefik: neither gateway/traefik.yml nor the traefik command in
+  # docker-compose.prod.yml enables the Prometheus provider, and the API is
+  # disabled in production (--api.dashboard=false), so nothing is served on
+  # :8080. Add "--metrics.prometheus=true" to Traefik's command first.
+  #
+  # - job_name: 'traefik'
+  #   static_configs:
+  #     - targets: ['traefik:8080']
+  #
+  # Gateway: the grc-gateway container is plain nginx:alpine and
+  # gateway/nginx.conf defines only the SPA/API routes plus GET /healthz - no
+  # stub_status block and no exporter - so there is no metrics endpoint to
+  # scrape. A gateway job needs nginx-prometheus-exporter plus a stub_status
+  # location added to gateway/nginx.conf.

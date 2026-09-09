@@ -25,7 +25,13 @@ rm -rf storage/
 - ✅ All policies and versions
 - ✅ All evidence metadata
 - ✅ All user activities and audit logs
-- ✅ Keycloak user accounts and sessions
+- ✅ All user records, permission groups and per-user permission overrides
+
+**Not** removed: the Google accounts themselves. Identity lives in Firebase
+Authentication, outside this platform - scrubbing deletes the `users` rows
+(including the `external_id` linking each row to its Firebase subject), not
+the Google accounts. To revoke access to the Firebase project, disable or
+delete the users in the Firebase console.
 
 ### Object Storage (MinIO)
 - ✅ All uploaded evidence files
@@ -45,14 +51,17 @@ These credentials are included for development ONLY and are visible in the code:
 | Service | Username/Key | Password/Secret | Location |
 |---------|--------------|-----------------|----------|
 | **PostgreSQL** | `grc` | `grc_secret` | docker-compose.yml |
-| **Keycloak Admin** | `admin` | `admin` | docker-compose.yml |
 | **MinIO** | `minioadmin` | `minioadminpassword` | docker-compose.yml |
+
+There is no identity-provider credential in this table: authentication is
+delegated to Firebase (Google sign-in) and the platform stores no passwords.
 
 ### Where Credentials Are Stored
 
 1. **docker-compose.yml** - Uses environment variables with fallback to default values
-2. **.env.example** - Template file with placeholders
-3. **.env** - Your actual credentials (NOT in git, create from .env.example)
+2. **`env.development`** - Local development template (`NODE_ENV=development`, `AUTH_MODE=demo`)
+3. **`deploy/env.example`** - Production template (`NODE_ENV=production`, no auth bypass)
+4. **`.env` / `.env.prod`** - Your actual credentials (NOT in git; copy from the templates above)
 
 ### Credential Security Status
 
@@ -87,17 +96,20 @@ This script checks for:
 
 Before going to production:
 
-### 1. Create Production .env File
+### 1. Create Production Environment File
 
 ```bash
-cp .env.example .env
-nano .env  # Update all values
+cp deploy/env.example .env.prod
+chmod 600 .env.prod
+nano .env.prod  # Update all CHANGE_ME values
 ```
 
 Required changes:
 - [ ] `POSTGRES_PASSWORD` - Use 32+ character random password
-- [ ] `KEYCLOAK_ADMIN_PASSWORD` - Use 32+ character random password
 - [ ] `MINIO_ROOT_PASSWORD` - Use 32+ character random password
+- [ ] `JWT_SECRET` - 64 characters (`openssl rand -base64 64`)
+- [ ] `ENCRYPTION_KEY` - 32+ characters; encrypts stored integration credentials
+- [ ] `FIREBASE_PROJECT_ID` and `ALLOWED_EMAIL_DOMAINS` - which Google accounts may sign in
 
 Generate strong passwords:
 ```bash
@@ -110,17 +122,24 @@ pwgen -s 32 1
 
 ### 2. Enable Production Mode
 
-Update docker-compose.yml or create docker-compose.prod.yml:
+Use the production compose file, which already sets the hardened options
+(no published service ports, capability dropping, read-only filesystems,
+Traefik TLS):
 
-```yaml
-keycloak:
-  command: start  # Remove --dev flag
-  environment:
-    KC_HOSTNAME_STRICT: "true"
-    KC_HTTP_ENABLED: "false"
-    KC_HTTPS_ENABLED: "true"
-    # Add SSL certificate paths
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
 ```
+
+In `.env.prod`:
+
+```bash
+NODE_ENV=production
+MINIO_BROWSER=off
+# AUTH_MODE must stay unset. AUTH_MODE=demo disables token verification and
+# the auth guard refuses to start when NODE_ENV=production.
+```
+
+Then run `./deploy/preflight-check.sh` and `npm run validate:production`.
 
 ### 3. Use Secrets Manager (Recommended)
 
@@ -180,9 +199,14 @@ Update Traefik configuration for HTTPS.
 
 Set up credential rotation schedule:
 - PostgreSQL: Every 90 days
-- Keycloak: Every 90 days
 - MinIO: Every 90 days
-- API Keys: Every 30 days
+- `JWT_SECRET` / `ENCRYPTION_KEY`: Every 90 days (rotating `ENCRYPTION_KEY`
+  requires re-encrypting stored integration credentials)
+- Integration API keys: Every 30 days
+
+Nothing needs rotating for sign-in: there is no application-held identity
+credential. Access is revoked by removing the user's row (or their
+permissions) in the database, and by disabling the Google account in Firebase.
 
 ## API Keys & Integration Credentials
 
@@ -238,27 +262,31 @@ docker-compose exec postgres psql -U grc -d gigachad_grc \
 ## Starting Fresh After Scrubbing
 
 ```bash
-# 1. Update credentials in .env
-cp .env.example .env
-nano .env  # Update all CHANGE_ME values
+# 1. Recreate the environment file
+cp env.development .env        # local development
+# or, for production: cp deploy/env.example .env.prod
+nano .env                      # update all CHANGE_ME values
 
-# 2. Start services
-docker-compose up -d
+# 2. Start infrastructure
+docker-compose up -d postgres minio
 
 # 3. Wait for services to be healthy
 docker-compose ps
 
-# 4. Push database schema
+# 4. Push the database schema (root script already points at the schema)
 DATABASE_URL='postgresql://grc:NEW_PASSWORD@localhost:5433/gigachad_grc' \
-  npm run prisma:push --schema=services/shared/prisma/schema.prisma
+  npm run db:push
 
-# 5. Verify services
-curl http://localhost:3001/api/docs  # Controls API
-curl http://localhost:3002/api/docs  # Frameworks API
-curl http://localhost:3007/api/docs  # Audit API
+# 5. Start the application (or run ./scripts/start-demo.sh, which does 1-4 too)
+./scripts/start-demo.sh
 
-# 6. Access frontend
-open http://localhost:5173
+# 6. Verify services
+curl http://localhost:3001/health   # Controls
+curl http://localhost:3002/health   # Frameworks
+curl http://localhost:3007/health   # Audit
+
+# 7. Access frontend
+open http://localhost:3000
 ```
 
 ## Backup Before Scrubbing (Optional)

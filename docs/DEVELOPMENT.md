@@ -5,7 +5,7 @@
 1. [Prerequisites](#prerequisites)
 2. [Quick Start](#quick-start)
 3. [Project Structure](#project-structure)
-4. [Local Development](#local-development)
+4. [Local Development](#local-development) (incl. [Authentication](#authentication))
 5. [Frontend Development](#frontend-development)
 6. [Backend Development](#backend-development)
 7. [Database Management](#database-management)
@@ -71,22 +71,29 @@ npm install
 ```
 
 > ⚠️ `deploy/env.example` is the **production** template — it sets
-> `NODE_ENV=production`, which makes `DevAuthGuard` throw so every controls
-> endpoint answers HTTP 500. Never copy it to `.env` for local development.
-> There is no `env.example` at the repository root.
+> `NODE_ENV=production`, which makes `FirebaseAuthGuard` refuse to start under
+> `AUTH_MODE=demo`. Never copy it to `.env` for local development. There is no
+> `env.example` at the repository root.
+
+`env.development` ships `AUTH_MODE=demo` and `VITE_AUTH_MODE=demo`, so local
+work needs no Firebase project. See [Authentication](#authentication) below.
 
 ### 2. Start Infrastructure
 
 ```bash
-# Start all services
-docker compose up -d
+# PostgreSQL and MinIO are the only containers local development needs
+docker compose up -d postgres minio
 
-# Wait for services to be healthy
+# Wait for them to be healthy
 docker compose ps
-
-# Verify all services are running
-./deploy/preflight-check.sh
 ```
+
+`docker compose up -d` with no arguments also builds and runs the six services
+and the frontend in containers. That first build takes 25–60 minutes, which is
+why `./scripts/start-demo.sh` compiles them on the host instead (~15 seconds).
+
+`./deploy/preflight-check.sh` exists for pre-deployment verification, not for
+local setup.
 
 ### 3. Initialize Database
 
@@ -94,7 +101,7 @@ docker compose ps
 # One shared Prisma schema covers all six services
 npm run db:push
 
-# Insert the organization and user DevAuthGuard hard-codes
+# Insert the organization and user the AUTH_MODE=demo identity resolves to
 docker compose exec -T postgres \
   psql -U grc -d gigachad_grc < database/dev-bootstrap.sql
 ```
@@ -116,27 +123,51 @@ legacy and non-functional.
 `./scripts/start-demo.sh` does all of the above (env file, schema, bootstrap
 rows, services, frontend, demo data) in one command.
 
-### 4. Start Frontend
+### 4. Start the Services and Frontend
+
+The simplest path is the demo script, which starts all six services with
+`AUTH_MODE=demo` and the Vite dev server with `VITE_AUTH_MODE=demo`:
+
+```bash
+./scripts/start-demo.sh
+```
+
+To run pieces by hand, export the root `.env` first — each service is started
+from its own directory and reads configuration from the process environment, so
+without it `FirebaseAuthGuard` aborts at boot with "FIREBASE_PROJECT_ID is not
+set":
+
+```bash
+set -a; . ./.env; set +a
+cd services/controls && PORT=3001 npm run start:dev
+```
 
 ```bash
 cd frontend
 npm install
-npm run dev
+VITE_AUTH_MODE=demo npm run dev -- --host 127.0.0.1 --port 3000 --strictPort
 ```
+
+Vite reads `frontend/.env`, not the root `.env`, and none is committed — hence
+the inline `VITE_AUTH_MODE`. Without it the "Dev Login (Skip SSO)" button does
+not render.
 
 ### 5. Access Application
 
 | Service | URL | Credentials |
 |---------|-----|-------------|
-| Frontend | http://localhost:3000 | Click **Dev Login** |
-| Traefik Dashboard | http://localhost:8090 | - |
-| Keycloak Admin | http://localhost:8080 | admin / admin |
+| Frontend | http://localhost:3000 | Click **Dev Login (Skip SSO)** |
+| Controls API health | http://localhost:3001/api/system/health | - |
 | MinIO Console | http://localhost:9001 | `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` from `.env` |
 | PostgreSQL | localhost:5433 | `POSTGRES_USER` / `POSTGRES_PASSWORD` from `.env` |
 
-Open `http://localhost:3000`, not `127.0.0.1:3000` — only `localhost` is in
-Keycloak's redirect allow-list (`auth/realm-export.json`). Port 3000 is the Vite
-dev server port for this project.
+The Traefik dashboard at http://localhost:8090 is only up if you started the
+full container stack (`docker compose up -d`), which includes a `traefik`
+service; the host-process workflow above does not use it.
+
+Open `http://localhost:3000`, not `127.0.0.1:3000`. Firebase authorised domains
+and the Google OAuth redirect are registered for `http://localhost:3000`, which
+is why `start-demo.sh` passes `--strictPort` and always opens that origin.
 
 ---
 
@@ -144,13 +175,8 @@ dev server port for this project.
 
 ```
 gigachad-grc/
-├── auth/                      # Keycloak configuration
-│   └── realm-export.json      # Realm export file
-│
 ├── database/                  # Database SQL
-│   ├── dev-bootstrap.sql      # Dev organization/user DevAuthGuard requires
-│   ├── bootstrap/             # Mounted into Postgres on first start
-│   │   └── 00-create-keycloak-db.sql
+│   ├── dev-bootstrap.sql      # Organization/user the AUTH_MODE=demo identity resolves to
 │   └── init/                  # Legacy patches — NOT mounted, not applied
 │
 ├── deploy/                    # Deployment files
@@ -186,8 +212,9 @@ gigachad-grc/
 │   ├── tsconfig.json
 │   └── vite.config.ts
 │
-├── gateway/                   # API Gateway
-│   └── traefik.yml           # Traefik configuration
+├── gateway/                   # Ingress configuration
+│   ├── nginx.conf            # Production public entrypoint (53 API routes)
+│   └── traefik.yml           # Traefik configuration (TLS / container stack)
 │
 ├── scripts/                   # Utility scripts
 │   ├── start-demo.sh         # One-command local demo
@@ -244,19 +271,25 @@ gigachad-grc/
 
 ```bash
 # Start infrastructure only
-docker compose up -d postgres keycloak minio traefik
+docker compose up -d postgres minio
+
+# Export the root .env so every service inherits AUTH_MODE=demo and DATABASE_URL
+set -a; . ./.env; set +a
 
 # Build the shared library first — every service imports @gigachad-grc/shared
 npm run build:shared
 
 # Start services in watch mode (separate terminals)
-cd services/controls && npm run start:dev      # :3001
-cd services/frameworks && npm run start:dev    # :3002
+cd services/controls && PORT=3001 npm run start:dev
+cd services/frameworks && PORT=3002 npm run start:dev
 # ... policies :3004, tprm :3005, trust :3006, audit :3007
 
 # Start frontend (Vite dev server on :3000)
-cd frontend && npm run dev
+cd frontend && VITE_AUTH_MODE=demo npm run dev -- --host 127.0.0.1 --port 3000 --strictPort
 ```
+
+There is no service on port 3003; in the full container stack that host port
+belongs to Grafana.
 
 ### Hot Reloading
 
@@ -278,6 +311,40 @@ RATE_LIMIT_ENABLED=false
 Frontend `VITE_*` variables can also go in `frontend/.env.local`, which Vite
 reads. Leave `VITE_API_URL` empty in development so the Vite dev server proxies
 each `/api/*` prefix to the service that owns it (`frontend/vite.config.ts`).
+
+### Authentication
+
+Identity is **Firebase Authentication with Google sign-in only**.
+`FirebaseAuthGuard` (`services/shared/src/auth/firebase-auth.guard.ts`, exported
+from `@gigachad-grc/shared`) is the only authentication guard in the codebase:
+99 `@UseGuards` sites reference it. The remaining `@UseGuards` entries are
+`PermissionGuard` — authorization, not authentication — on methods of
+controllers that already carry a class-level `FirebaseAuthGuard`.
+
+What the token is allowed to say: a Firebase ID token proves **which Google
+account is calling, and nothing else**. Organization, role and account status
+are read from PostgreSQL on every uncached request. Firebase custom claims were
+rejected deliberately — they only reach the client on token refresh, so a
+revoked admin would keep acting as an admin for up to an hour.
+
+| Variable | Purpose |
+|----------|---------|
+| `AUTH_MODE` | `demo` is the single bypass; hard-throws under `NODE_ENV=production` |
+| `FIREBASE_PROJECT_ID` | Validates the issuer and audience of ID tokens; required unless `AUTH_MODE=demo` |
+| `ALLOWED_EMAIL_DOMAINS` | Comma-separated sign-in allowlist; an ID token carries no hosted-domain claim, so this is the only domain gate |
+| `AUTH_AUTO_PROVISION` | `true` creates a user row on first sign-in |
+| `AUTH_DEFAULT_ORG_ID` | Organization new auto-provisioned accounts join; required when `AUTH_AUTO_PROVISION=true` |
+| `VITE_AUTH_MODE` | Frontend counterpart; the bypass also requires `import.meta.env.DEV` |
+| `VITE_FIREBASE_API_KEY` | Public client identifier, baked into the bundle at build time — not a secret |
+| `VITE_FIREBASE_AUTH_DOMAIN` | Firebase auth domain, build time |
+| `VITE_FIREBASE_PROJECT_ID` | Firebase project id, build time |
+| `VITE_ALLOWED_EMAIL_DOMAIN` | Optional UI hint: sets Google's `hd` parameter to pre-filter the account chooser. It never reaches the ID token and is trivially bypassable — the real gate is `ALLOWED_EMAIL_DOMAINS` plus a provisioned `users` row |
+
+In demo mode the guard still resolves its identity from PostgreSQL through the
+same `resolveIdentity` path a real sign-in uses — only token verification is
+skipped — so demo and production cannot drift apart in how a `UserContext` is
+built. The row it loads is the one `database/dev-bootstrap.sql` inserts
+(`external_id = 'demo-user'`, `john.doe@example.com`, role `admin`).
 
 ---
 
@@ -810,8 +877,8 @@ npx husky add .husky/pre-commit "npx lint-staged"
 
 ### Common Issues
 
-**Port already in use** (3000 frontend, 3001–3007 services, 5433 Postgres,
-8080 Keycloak, 9000/9001 MinIO):
+**Port already in use** (3000 frontend, 3001/3002/3004–3007 services, 5433
+Postgres, 9000/9001 MinIO):
 ```bash
 lsof -nP -iTCP:3000 -sTCP:LISTEN
 kill -9 <PID>
@@ -824,8 +891,13 @@ docker system prune -a
 docker compose up -d --build
 ```
 
-**HTTP 500 from every controls endpoint**: `.env` has `NODE_ENV=production`, so
-`DevAuthGuard` throws. Replace it with `env.development`.
+**Services refuse to start**: `.env` has `NODE_ENV=production`, so
+`FirebaseAuthGuard` throws while being constructed rather than accepting
+`AUTH_MODE=demo`. Replace `.env` with a copy of `env.development`.
+
+**"FIREBASE_PROJECT_ID is not set" at boot**: `AUTH_MODE=demo` never reached the
+service. Export the root `.env` before starting it from its own directory
+(`set -a; . ./.env; set +a`).
 
 **Prisma issues**:
 ```bash

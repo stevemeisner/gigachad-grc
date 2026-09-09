@@ -182,10 +182,32 @@ check_production_config() {
         warnings=$((warnings + 1))
     fi
     
-    # Check for Keycloak
-    if [ -z "${KEYCLOAK_URL:-}" ]; then
-        log_warn "⚠️  KEYCLOAK_URL is not configured!"
+    # Check Firebase authentication configuration. The ID token proves
+    # identity only; role, permissions and organization are read from
+    # PostgreSQL on every request.
+    #
+    # FirebaseAuthGuard's constructor throws when FIREBASE_PROJECT_ID is
+    # unset ("there is no safe default"), so the service cannot start at all.
+    # Fail here instead, with a message an operator can act on.
+    if [ -z "${FIREBASE_PROJECT_ID:-}" ]; then
+        log_error "❌ FIREBASE_PROJECT_ID is not set - the auth guard cannot validate token issuer/audience and will refuse to start"
+        exit 1
+    fi
+
+    # An empty allowlist disables the domain check entirely (see
+    # assertDomainAllowed): any Google account with a verified email then
+    # gets as far as the users-table lookup.
+    if [ -z "${ALLOWED_EMAIL_DOMAINS:-}" ]; then
+        log_warn "⚠️  ALLOWED_EMAIL_DOMAINS is empty - the email-domain check is disabled; only the users table restricts who can sign in"
         warnings=$((warnings + 1))
+    fi
+
+    # The demo bypass must never reach production. The backend guard throws on
+    # startup when NODE_ENV=production, so this fails the container early with
+    # a readable message instead.
+    if [ "${AUTH_MODE:-}" = "demo" ]; then
+        log_error "❌ AUTH_MODE=demo is set with NODE_ENV=production - refusing to start"
+        exit 1
     fi
     
     # Check for backup configuration

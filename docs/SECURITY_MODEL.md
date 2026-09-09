@@ -27,14 +27,17 @@ The platform implements multiple layers of security:
 │                     CDN / WAF Layer                         │
 │              (Cloudflare, AWS CloudFront)                   │
 ├─────────────────────────────────────────────────────────────┤
-│                    API Gateway (Traefik)                    │
-│         Rate Limiting, TLS Termination, Routing             │
+│                  TLS Termination (Traefik)                  │
+│      nginx Gateway: 53 API routes, longest-prefix match     │
 ├─────────────────────────────────────────────────────────────┤
 │                  Authentication Layer                       │
-│         Keycloak OAuth 2.0 / OIDC, JWT Validation           │
+│   Firebase ID token: RS256 signature, issuer + audience     │
+│   pinned to FIREBASE_PROJECT_ID, email_verified and         │
+│   google.com provider asserted (FirebaseAuthGuard)          │
 ├─────────────────────────────────────────────────────────────┤
-│                  Authorization Layer                        │
-│      Permission Guards, RBAC, Resource-Level Access         │
+│                     Authorization Layer                     │
+│      PostgreSQL permission groups + per-user overrides,     │
+│ users.role fallback, resource-level scope (PermissionGuard) │
 ├─────────────────────────────────────────────────────────────┤
 │                   Application Layer                         │
 │          Input Validation, Business Logic                   │
@@ -47,7 +50,7 @@ The platform implements multiple layers of security:
 ### Network Segmentation
 
 - **Public Zone**: CDN, Load Balancer
-- **DMZ**: API Gateway, Authentication Services
+- **DMZ**: nginx gateway (`gateway/nginx.conf`), the single public entrypoint
 - **Application Zone**: Backend Services (Controls, Frameworks, etc.)
 - **Data Zone**: PostgreSQL, MinIO (Object Storage)
 
@@ -55,62 +58,165 @@ The platform implements multiple layers of security:
 
 ## Authentication
 
-### Production Authentication (Keycloak)
+### Identity Provider: Firebase Authentication (Google sign-in only)
 
-In production, the platform uses **Keycloak** for OAuth 2.0 / OpenID Connect authentication:
+Firebase Authentication is the platform's only identity provider, and Google
+is its only enabled sign-in method. There is no local password store, no
+self-registration and no second identity system to keep in sync.
+
+`FirebaseAuthGuard` (`services/shared/src/auth/firebase-auth.guard.ts`,
+exported from `@gigachad-grc/shared`) is the **only** authentication guard in
+the codebase and is applied at every `@UseGuards` site across the six
+services.
 
 ```typescript
-// Frontend authentication flow
-const keycloakConfig = {
-  url: process.env.VITE_KEYCLOAK_URL,
-  realm: process.env.VITE_KEYCLOAK_REALM,
-  clientId: process.env.VITE_KEYCLOAK_CLIENT_ID,
+// Frontend configuration — all three values are build-time, all three public
+const firebaseConfig = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
 };
 ```
 
-**Token Flow:**
-1. User redirected to Keycloak login
-2. Keycloak issues JWT access token and refresh token
-3. Frontend stores tokens in `sessionStorage` (via `secureStorage`)
-4. API requests include `Authorization: Bearer <token>`
-5. Backend validates JWT signature and claims
+The Firebase **Web API key is not a secret**. It is a public client
+identifier that ships inside the browser bundle by design and grants nothing
+on its own.
 
-### Development Authentication (DevAuthGuard)
+**Token flow:**
 
-For local development without Keycloak, the `DevAuthGuard` provides a mock user context:
+1. The browser calls `signInWithPopup` with `GoogleAuthProvider`.
+2. Firebase returns a signed ID token (JWT). The frontend holds it in memory
+   only — it is never written to `localStorage` or `sessionStorage`, because a
+   stored copy goes stale within the hour. The Firebase SDK owns the refresh
+   credential and refreshes the ID token silently.
+3. API requests carry `Authorization: Bearer <Firebase ID token>`.
+4. `FirebaseAuthGuard` verifies the token and then resolves the caller's
+   identity **from PostgreSQL**.
+
+### What the guard verifies
+
+Every check below is enforced server-side on every request.
+
+| Check | Detail |
+|-------|--------|
+| Algorithm | Header `alg` must be `RS256`; anything else is rejected before signature work |
+| Signature | Verified against Google's JWKS at `https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com`, keyed by the token's `kid` (cached 10 minutes, rate-limited) |
+| Issuer | Must equal `https://securetoken.google.com/${FIREBASE_PROJECT_ID}` |
+| Audience | Must equal `FIREBASE_PROJECT_ID` |
+| Expiry / skew | Standard `exp` validation with 60 seconds of clock tolerance |
+| `auth_time` | Must be present and not in the future — a token cannot claim a sign-in that has not happened |
+| `email_verified` | Must be `true` |
+| Sign-in provider | `firebase.sign_in_provider` must be `google.com` |
+| `email` | Must be present; lowercased before use |
+
+`FIREBASE_PROJECT_ID` is mandatory: the guard refuses to construct without it
+rather than accept a token from an unknown project.
+
+### Who is allowed in: two enforced layers
+
+A Firebase ID token does **not** carry Google's `hd` (hosted domain) claim,
+so nothing in the token proves the holder belongs to your Workspace. Two
+independent server-side layers do that work:
+
+| Layer | Variable | Behaviour |
+|-------|----------|-----------|
+| **Email domain allowlist** | `ALLOWED_EMAIL_DOMAINS` | Comma-separated (e.g. `example.com,example.co.uk`); entries are lowercased and a leading `@` stripped. A mismatch is **403**. An empty value disables the check — never do that in production |
+| **A provisioned `users` row** | `AUTH_AUTO_PROVISION` (default `false`) | With the default, an address with no matching `users` row is refused **401** whatever domain it came from. This is the layer that means "you must be given an account", not merely "you work here" |
+
+- A pre-created row carrying a placeholder `external_id` is claimed on first
+  sign-in: the guard matches it by verified email and rewrites `external_id`
+  to the real Firebase subject.
+- `AUTH_AUTO_PROVISION=true` requires `AUTH_DEFAULT_ORG_ID`; the guard throws
+  at construction otherwise rather than guess an organization. Auto-provisioned
+  accounts are created as `viewer`.
+- A row whose `status` is not `active` is refused **403** even with a valid
+  token, so suspension takes effect without revoking anything at Google.
+- `VITE_ALLOWED_EMAIL_DOMAIN` (singular, frontend, build-time) **restricts
+  nothing**. It is passed to Google as the `hd` parameter only to pre-filter
+  the account chooser. Never rely on it.
+
+### The token proves identity, nothing more
+
+No authorization decision reads a token claim. Once the token is verified,
+the guard builds `request.user` entirely from the `users` row:
 
 ```typescript
-@Injectable()
-export class DevAuthGuard implements CanActivate {
-  canActivate(context: ExecutionContext): boolean {
-    // CRITICAL: Prevent usage in production
-    if (process.env.NODE_ENV === 'production') {
-      throw new Error('DevAuthGuard cannot be used in production');
-    }
-    
-    // Inject mock user context
-    request.user = mockUserContext;
-    return true;
-  }
-}
+const context: UserContext = {
+  userId: user.id,              // database id — what every foreign key points at
+  externalId: payload.sub,      // Firebase subject, for lookup only
+  email: user.email,
+  organizationId: user.organizationId,
+  role: user.role,
+  permissions: [],              // resolved separately; empty grants nothing
+  displayName: user.displayName,
+};
 ```
 
-**⚠️ Security Warning:** The `DevAuthGuard` explicitly throws an error if `NODE_ENV=production` to prevent accidental exposure.
+This is deliberate: Firebase custom claims refresh at most hourly, so a role
+carried in the token would let a demoted or revoked administrator keep their
+old rights until the token expired. Resolved identities are cached for 30
+seconds keyed by Firebase `sub`, which bounds that window to seconds instead.
+
+`users.external_id` (Prisma `externalId`) holds the Firebase subject. Look a
+user up with `GET /api/users/external/:externalId`.
+
+### The single authentication bypass
+
+`AUTH_MODE=demo` on the backend serves **every** request as the seeded demo
+administrator without verifying any token, for local demos only. It is
+resolved through the same database path as a real sign-in, so the two cannot
+diverge, and auto-provisioning is off for it on purpose.
+
+**It hard-throws when `NODE_ENV=production`** — the check runs both in the
+guard's constructor (so services refuse to boot) and again on every request.
+The frontend counterpart requires `VITE_AUTH_MODE=demo` **and**
+`import.meta.env.DEV`, so it cannot be compiled into a production bundle at
+all.
+
+This is the only bypass in the system. No development guard remains: all six
+copies of the former `dev-auth.guard.ts` are deleted.
 
 ### Session Management
 
-- **Access Token Lifetime**: 5 minutes (configurable in Keycloak)
-- **Refresh Token Lifetime**: 30 minutes (configurable)
-- **Session Storage**: `sessionStorage` for in-memory tokens
-- **CSRF Protection**: SameSite cookies, CORS restrictions
+- **ID token lifetime**: one hour, set by Firebase and not configurable here
+- **Refresh**: handled by the Firebase SDK; a single `onIdTokenChanged`
+  subscription covers session restore, sign-in, sign-out and silent refresh
+- **ID token storage**: in memory only, never persisted
+- **Sign-out**: `signOut()` plus local state clear; the SDK discards the
+  refresh credential
+- **CSRF**: the API is bearer-token authenticated, not cookie authenticated,
+  so a cross-site request cannot ride an ambient session. CORS origins are
+  restricted with `CORS_ORIGINS`
+- **Identity cache**: 30 seconds server-side, so a role, status or
+  organization change takes effect within 30 seconds
 
 ---
 
 ## Authorization
 
+### Where authorization comes from
+
+**Not from the token.** The Firebase ID token carries no role, no
+organization and no permission claim, and the guard reads none. Authorization
+is resolved from PostgreSQL for every decision:
+
+1. The `PermissionGroup` rows the user belongs to (`source: 'group'`).
+2. Per-user overrides layered on top, which can also *remove* a permission
+   (`source: 'override'`).
+3. If the user has neither, a fallback derived from their `users.role` column
+   (`source: 'role'`), mapped onto one of the default group templates:
+   `admin → Administrator`, `compliance_manager → Compliance Manager`,
+   `auditor → Auditor`, `viewer → Viewer`.
+
+The role fallback exists so a freshly provisioned user is not 403 on every
+route before an administrator puts them in a group. An explicit group or
+override always wins over it, so a group that deliberately narrows a user is
+never overruled by their role. `EffectivePermissionDto.source` records which
+of the three granted a permission.
+
 ### Role-Based Access Control (RBAC)
 
-The platform implements fine-grained RBAC with the following components:
+A permission is a `(resource, actions, scope)` triple:
 
 #### Resources
 ```typescript
@@ -136,14 +242,28 @@ enum Resource {
 #### Actions
 ```typescript
 enum Action {
-  CREATE = 'create',
   READ = 'read',
+  CREATE = 'create',
   UPDATE = 'update',
   DELETE = 'delete',
-  EXPORT = 'export',
   ASSIGN = 'assign',
+  APPROVE = 'approve',
+  EXPORT = 'export',
 }
 ```
+
+#### Scope
+```typescript
+enum OwnershipScope {
+  ALL = 'all',            // any item in the organization
+  OWNED = 'owned',        // only items the caller owns
+  ASSIGNED = 'assigned',  // only items assigned to the caller
+}
+```
+
+Scope is checked against the concrete resource, so `controls:update` with
+`ASSIGNED` ownership fails on a control the caller is not assigned to. Tag
+and category scopes narrow further.
 
 ### Permission Guard
 
@@ -151,34 +271,44 @@ API endpoints are protected using the `@RequirePermission` decorator:
 
 ```typescript
 @Controller('api/controls')
-@UseGuards(JwtAuthGuard, PermissionGuard)
+@UseGuards(FirebaseAuthGuard, PermissionGuard)
 export class ControlsController {
-  
+
   @Get()
   @RequirePermission(Resource.CONTROLS, Action.READ)
-  async findAll() { /* ... */ }
-  
+  async findAll(@OrgId() organizationId: string) { /* ... */ }
+
   @Post()
   @RequirePermission(Resource.CONTROLS, Action.CREATE)
   async create(@Body() dto: CreateControlDto) { /* ... */ }
-  
+
   @Delete(':id')
   @RequirePermission(Resource.CONTROLS, Action.DELETE)
   async delete(@Param('id') id: string) { /* ... */ }
 }
 ```
 
+`PermissionGuard` takes the user id from `request.user.userId` — populated by
+`FirebaseAuthGuard` from a verified token — and never from an `x-user-id`
+header, which any caller could set. A route carrying no `@RequirePermission`
+decorator is authenticated but not permission-checked.
+
 ### Permission Groups
 
-Users are assigned to permission groups that bundle related permissions:
+Group membership is the primary source of permissions. The templates shipped
+in `DEFAULT_PERMISSION_GROUPS` are:
 
-| Group | Description | Typical Permissions |
-|-------|-------------|---------------------|
-| Admin | Full platform access | All resources, all actions |
-| Compliance Manager | Manage compliance program | Controls, Evidence, Frameworks (CRUD) |
-| Risk Manager | Manage risk program | Risk, BCDR (CRUD), Reports (read) |
-| Auditor | Read-only audit access | All resources (read), Audit Logs (read) |
-| Viewer | Basic read access | Dashboard, Controls, Evidence (read) |
+| Template | Description | Permissions |
+|----------|-------------|-------------|
+| Administrator | Full access to all resources and actions | Every resource, all actions (`audit_logs` is read + export only) |
+| Compliance Manager | Manage controls, evidence, and policies | Controls (read/create/update/assign), Evidence and Policies (read/create/update/approve), Risk and BCDR (read/create/update), Workspaces (read/create/update/assign), Reports (read/export), Frameworks / Integrations / Audit Logs / Dashboard / AI (read) |
+| Auditor | Read-only with evidence approval | Controls, Policies, Frameworks, Dashboard, Workspaces, Risk, BCDR (read), plus `evidence:approve`; Audit Logs and Reports also export |
+| Control Owner | Edit assigned controls and link evidence | Controls (read/update, **assigned** only), Evidence (read/create/update, **owned** only), Policies / Frameworks / Dashboard / Workspaces (read) |
+| Viewer | Read-only access to non-sensitive data | Controls, Evidence, Policies, Frameworks, Dashboard, Workspaces (read) |
+
+`control_owner` is a group template only — there is no matching `users.role`
+value, so it cannot be reached through the role fallback and has to be
+assigned as a group.
 
 ---
 
@@ -233,20 +363,29 @@ const controls = await this.prisma.control.findMany({
 });
 ```
 
-### Middleware Enforcement
+### Parameter-Decorator Enforcement
 
-A middleware extracts and validates `organizationId` from the JWT:
+Controllers take the tenant from the verified identity, never from the wire.
+`@OrgId()`, `@UserId()`, `@UserEmail()` and `@AuthUser()`
+(`services/shared/src/auth/identity.decorators.ts`) read `request.user`,
+which only `FirebaseAuthGuard` populates:
 
 ```typescript
-// Headers set by auth layer
-request.headers['x-organization-id'] = decodedToken.organizationId;
-request.headers['x-user-id'] = decodedToken.sub;
+// 103 call sites across the six services
+async findAll(@OrgId() organizationId: string) { /* ... */ }
 ```
+
+They fail closed: on a route with no auth guard `request.user` is undefined
+and the decorator throws **401** rather than hand the handler `undefined`,
+which would previously have widened the query to every organization.
 
 ### Cross-Tenant Access Prevention
 
-- No API endpoint accepts `organizationId` as a parameter
-- Organization context is derived exclusively from authenticated token
+- Controllers no longer read `x-organization-id` / `x-user-id` from request
+  headers — those are client-supplied and were only ever safe because the
+  since-deleted development guard overwrote them on the way in
+- Organization context comes from the caller's `users` row, resolved
+  server-side after token verification
 - Database constraints enforce foreign key relationships
 
 ---
@@ -316,23 +455,31 @@ app.use(helmet({
 - DOMPurify for user-generated HTML
 - No `dangerouslySetInnerHTML` without sanitization
 
-### Secure Token Storage
+### Token Handling
+
+The Firebase ID token is **not stored**. `AuthContext` keeps it in React
+state for the lifetime of the page and re-reads it from the SDK whenever it
+changes:
 
 ```typescript
-// secureStorage utility
-export const secureStorage = {
-  setItem: (key: string, value: string) => {
-    sessionStorage.setItem(key, value);
-  },
-  getItem: (key: string) => sessionStorage.getItem(key),
-  removeItem: (key: string) => sessionStorage.removeItem(key),
-};
+// Never persisted: the SDK owns the refresh credential, and a stored copy of
+// the ID token goes stale within the hour.
+onIdTokenChanged(auth, async (firebaseUser) => {
+  const idToken = await firebaseUser.getIdToken();
+  setToken(idToken);
+});
 ```
 
-**Why `sessionStorage`:**
-- Cleared when browser tab closes
-- Not sent with requests (unlike cookies)
-- Isolated per origin
+**Why nothing is written to storage:**
+- No long-lived bearer token sits in `localStorage` for an XSS payload to
+  exfiltrate
+- The token is a bearer credential, not a cookie, so no cross-site request
+  can ride an ambient session
+- The Firebase SDK owns the refresh credential and the hourly renewal
+
+The one `sessionStorage` key the app writes is `grc-demo-session`, which only
+marks the `AUTH_MODE=demo` bypass as active across a page refresh in a
+development build. It holds no credential.
 
 ---
 
@@ -423,10 +570,21 @@ const aiConfig = {
 **Never commit secrets to version control.**
 
 Required production secrets:
-- `DATABASE_URL` - PostgreSQL connection string
-- `KEYCLOAK_CLIENT_SECRET` - Keycloak client secret
-- `JWT_SECRET` - JWT signing key (if not using Keycloak)
-- `ENCRYPTION_KEY` - Data encryption key
+- `DATABASE_URL` (or `POSTGRES_PASSWORD`) — PostgreSQL credentials
+- `ENCRYPTION_KEY` — encrypts stored integration credentials; losing it makes
+  them unreadable
+- `JWT_SECRET` — reserved for internal service-to-service tokens
+
+Required production authentication settings (none of these is a secret):
+- `FIREBASE_PROJECT_ID` — pins the accepted token issuer and audience
+- `ALLOWED_EMAIL_DOMAINS` — the email domain allowlist
+- `AUTH_AUTO_PROVISION` — leave `false` so a `users` row must exist
+- `AUTH_DEFAULT_ORG_ID` — only when auto-provisioning is enabled
+- `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`,
+  `VITE_FIREBASE_PROJECT_ID` — build-time browser config; the Web API key is a
+  public client identifier, not a secret
+- `AUTH_MODE` — leave unset. `AUTH_MODE=demo` is the only bypass and the guard
+  hard-throws when `NODE_ENV=production`
 
 ### TLS Configuration
 
@@ -457,10 +615,14 @@ app.use(rateLimit({
 ## Production Readiness Checklist
 
 ### Authentication & Authorization
-- [ ] Keycloak configured with production realm
-- [ ] Client secrets rotated from defaults
-- [ ] JWT token lifetimes configured appropriately
-- [ ] DevAuthGuard removed or disabled
+- [ ] `FIREBASE_PROJECT_ID` set to the production Firebase project
+- [ ] Google is the only enabled sign-in method in that project
+- [ ] The app's public hostname is in Firebase → Authentication → Settings →
+      Authorized domains
+- [ ] `ALLOWED_EMAIL_DOMAINS` set (never empty in production)
+- [ ] `AUTH_AUTO_PROVISION=false`, or `AUTH_DEFAULT_ORG_ID` set alongside it
+- [ ] `AUTH_MODE` unset — `npm run validate:production` checks this
+- [ ] First administrator `users` row created (see the deployment runbook)
 - [ ] Permission groups defined and assigned
 
 ### Network Security

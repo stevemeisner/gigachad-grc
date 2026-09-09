@@ -12,6 +12,20 @@ The deployment creates:
 - **S3** bucket for file storage (policies, evidence, etc.)
 - **Security Groups** with least-privilege access
 
+> **This AWS path is an unmaintained alternative and has never been applied
+> against the current codebase.** The supported production deployment is the
+> single VM running `docker-compose.prod.yml` behind an nginx gateway,
+> documented step by step in
+> [../docs/DEPLOYMENT-RUNBOOK.md](../docs/DEPLOYMENT-RUNBOOK.md).
+>
+> The Terraform has been brought in line with Firebase authentication:
+> `firebase_project_id`, `allowed_email_domains`, `auth_auto_provision` and
+> `auth_default_org_id` are declared in `variables.tf` and injected into all
+> six backend task definitions. `AUTH_MODE` is deliberately absent \u2014 its only
+> valid production value is unset. Treat this configuration as a starting
+> point to review, not a tested deployment.
+
+
 ## Prerequisites
 
 1. **AWS Account** with appropriate permissions
@@ -19,7 +33,7 @@ The deployment creates:
 3. **AWS CLI** configured with credentials
 4. **Docker images** pushed to container registry (ECR or Docker Hub)
 5. **SSL Certificate** in AWS Certificate Manager (for HTTPS)
-6. **Keycloak** instance for authentication (can be self-hosted or managed)
+6. **Firebase project** with the Google sign-in provider enabled (hosted by Google; nothing to run yourself) - see the note above about wiring it into this configuration
 
 ## Quick Start
 
@@ -38,9 +52,9 @@ vi terraform.tfvars
 - `ssl_certificate_arn` - ARN of your SSL certificate
 - `database_password` - Strong database password
 - `container_registry` - Your container registry URL
-- `keycloak_url` - Your Keycloak server URL
-- `keycloak_client_secret` - Keycloak client secret
 - `allowed_cidr_blocks` - IP ranges allowed to access the app
+- `firebase_project_id` - your Firebase project id (services refuse to boot without it)
+- `allowed_email_domains` - the company domain permitted to sign in
 
 ### 2. Initialize Terraform
 
@@ -80,43 +94,41 @@ See [Post-Deployment Steps](#post-deployment-steps) below.
 
 ## Deployment Sizes
 
-We provide three pre-configured sizes:
+There are no `environments/small|medium|large` directories - this
+configuration is a single root module (`main.tf`, `variables.tf`,
+`outputs.tf`, `modules/`). Pick a size by setting variables in
+`terraform.tfvars`:
 
 ### Small (Development/Testing)
 **Cost**: ~$200-300/month
-- Single AZ
-- db.t3.medium RDS
-- 1 ECS task per service
 
-```bash
-cd environments/small
-terraform init
-terraform apply
+```hcl
+availability_zones        = ["us-east-1a"]   # single AZ
+single_nat_gateway        = true
+rds_instance_class        = "db.t3.medium"
+rds_multi_az              = false
+ecs_service_desired_count = 1
 ```
 
 ### Medium (Production - Standard)
 **Cost**: ~$500-800/month
-- Multi-AZ
-- db.t3.large RDS
-- 2 ECS tasks per service
 
-```bash
-cd environments/medium
-terraform init
-terraform apply
+```hcl
+rds_instance_class        = "db.t3.large"
+rds_multi_az              = true
+ecs_service_desired_count = 2
 ```
 
 ### Large (Production - High Traffic)
 **Cost**: ~$1500-2500/month
-- Multi-AZ with auto-scaling
-- db.r6g.xlarge RDS
-- 4+ ECS tasks with auto-scaling
 
-```bash
-cd environments/large
-terraform init
-terraform apply
+```hcl
+rds_instance_class        = "db.r6g.xlarge"
+rds_multi_az              = true
+ecs_service_desired_count = 4
 ```
+
+Then `terraform apply` from this directory.
 
 ## Post-Deployment Steps
 
@@ -134,16 +146,16 @@ terraform output load_balancer_dns
 
 ### 2. Database Migrations
 
-Run Prisma migrations to set up the database schema:
+Apply the Prisma schema to the RDS instance:
 
 ```bash
 # Get database connection details
 terraform output database_endpoint
 
-# SSH to an ECS task or use AWS Session Manager
-# Then run migrations:
-cd /app/services/shared
-npm run prisma:migrate
+# From a machine that can reach the database (an ECS task via
+# `aws ecs execute-command`, a bastion, or a VPN), with DATABASE_URL set:
+cd services/controls
+npx prisma migrate deploy --schema=../shared/prisma/schema.prisma
 ```
 
 ### 3. Create Initial Organization
@@ -151,30 +163,53 @@ npm run prisma:migrate
 ```bash
 # Access the database
 psql -h [database-endpoint] -U grc_admin -d gigachad_grc
+```
 
-# Create organization
-INSERT INTO organizations (id, name, slug, settings)
+```sql
+-- updated_at has no database default (Prisma sets it in application code),
+-- so a hand-written INSERT must supply it.
+INSERT INTO organizations (id, name, slug, settings, updated_at)
 VALUES (
-  'your-org-id',
+  gen_random_uuid(),
   'Your Organization',
   'your-org',
-  '{}'::jsonb
+  '{}'::jsonb,
+  NOW()
 );
 ```
 
-### 4. Configure Keycloak
+### 4. Configure Firebase Authentication
 
-1. Log into your Keycloak admin console
-2. Create a new realm: `grc`
-3. Create a new client: `grc-platform`
-4. Configure redirect URIs: `https://your-domain.com/*`
-5. Enable "Direct Access Grants"
-6. Copy the client secret and update your terraform.tfvars
+Sign-in is Firebase Authentication with the Google provider; there is no
+identity server to deploy. Create the Firebase project, enable the Google
+provider, add the production host to the authorized domains, and register a
+Web app (see [../deploy/README.md](../deploy/README.md) for the full
+walkthrough).
 
-### 5. Test the Deployment
+The backend auth variables are already wired into the six task definitions.
+What Terraform cannot do for you is the frontend: `VITE_FIREBASE_API_KEY`,
+`VITE_FIREBASE_AUTH_DOMAIN` and `VITE_FIREBASE_PROJECT_ID` are compiled into
+the browser bundle at `docker build` time, so they must be passed as build
+arguments when the frontend image is built and pushed, not injected by the
+task definition. The web API key is a public client identifier, not a secret.
+
+### 5. Create the First Administrator
+
+Nothing creates it for you. Signing in with Google proves identity; access
+is granted only by a `users` row. Insert it against the organization created
+above - see the runbook
+([../docs/DEPLOYMENT-RUNBOOK.md](../docs/DEPLOYMENT-RUNBOOK.md)) for the
+exact statement, including the `external_id` placeholder that is replaced on
+first sign-in.
+
+### 6. Test the Deployment
 
 ```bash
-curl https://your-domain.com/api/health
+# The ALB health-check path for every service target group is /health
+curl https://your-domain.com/health
+
+# Application health (controls service)
+curl https://your-domain.com/api/system/health
 ```
 
 ## Monitoring and Logging
