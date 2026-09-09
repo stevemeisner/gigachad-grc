@@ -31,6 +31,10 @@ VALUES (
 )
 ON CONFLICT (id) DO NOTHING;
 
+-- `role` is set explicitly. It defaults to `viewer` in the Prisma schema, so
+-- omitting it left the database describing this account as a viewer while
+-- DevAuthGuard hands the very same session the `admin` role -- two sources of
+-- truth disagreeing about the only user in the system.
 INSERT INTO users (
     id,
     keycloak_id,
@@ -38,6 +42,7 @@ INSERT INTO users (
     first_name,
     last_name,
     display_name,
+    role,
     organization_id,
     updated_at
 )
@@ -48,7 +53,8 @@ VALUES (
     'John',
     'Doe',
     'John Doe',
+    'admin',
     '8924f0c1-7bb1-4be8-84ee-ad8725c712bf',
     NOW()
 )
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT (id) DO UPDATE SET role = EXCLUDED.role;
