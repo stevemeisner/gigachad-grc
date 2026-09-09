@@ -10,7 +10,7 @@
 The platform includes comprehensive Terraform configurations for deploying the infrastructure:
 
 - **Location**: `terraform/` directory
-- **Purpose**: Deploy AWS infrastructure (VPC, ECS, RDS, Redis, S3, ALB)
+- **Purpose**: Deploy AWS infrastructure (VPC, ECS, RDS, S3, ALB)
 - **Resources**: ~50-70 AWS resources managed via Terraform
 - **Status**: ✅ Production-ready
 

@@ -33,10 +33,6 @@ database_password          = "CHANGE_ME_STRONG_PASSWORD"  # Use AWS Secrets Mana
 rds_backup_retention_period = 7
 rds_multi_az               = true
 
-# Redis Configuration
-redis_node_type      = "cache.t3.medium"
-redis_num_cache_nodes = 2
-
 # S3 Configuration
 s3_enable_versioning = true
 

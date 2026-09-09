@@ -7,9 +7,6 @@ export * from './auth';
 // Storage
 export * from './storage';
 
-// Events
-export * from './events';
-
 // Search
 export * from './search';
 

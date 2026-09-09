@@ -71,7 +71,6 @@ else
     JWT_SECRET=$(openssl rand -base64 64 | tr -d '\n')
     SESSION_SECRET=$(openssl rand -base64 64 | tr -d '\n')
     POSTGRES_PASSWORD=$(openssl rand -base64 24 | tr -d '\n' | tr '+/' '-_')
-    REDIS_PASSWORD=$(openssl rand -base64 24 | tr -d '\n' | tr '+/' '-_')
     MINIO_PASSWORD=$(openssl rand -base64 20 | tr -d '\n' | tr '+/' '-_')
     
     echo -e "${GREEN}[SETUP]${NC} Creating .env file..."
@@ -96,12 +95,6 @@ POSTGRES_DB=gigachad_grc
 POSTGRES_HOST=localhost
 POSTGRES_PORT=5433
 DATABASE_URL=postgresql://grc:${POSTGRES_PASSWORD}@localhost:5433/gigachad_grc
-
-# Redis
-REDIS_HOST=localhost
-REDIS_PORT=6380
-REDIS_PASSWORD=${REDIS_PASSWORD}
-REDIS_URL=redis://:${REDIS_PASSWORD}@localhost:6380
 
 # MinIO
 MINIO_ENDPOINT=localhost

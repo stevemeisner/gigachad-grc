@@ -60,7 +60,7 @@ The script performs these steps in order:
 
 1. Checks prerequisites and that every required host port is free
 2. Creates `.env` from `env.development` if it does not exist
-3. Starts infrastructure in Docker: `postgres`, `redis`, `keycloak`, `minio`
+3. Starts infrastructure in Docker: `postgres`, `keycloak`, `minio`
 4. Creates the schema with `prisma db push`, then applies
    `database/dev-bootstrap.sql` (the development organization and user)
 5. Runs `npm install` if `node_modules/` is missing, then builds
@@ -152,7 +152,6 @@ loudly if dev auth is left switched on.
 | **Keycloak Admin** | http://localhost:8080 | Realm `gigachad-grc`; credentials from `.env` (`KEYCLOAK_ADMIN` / `KEYCLOAK_ADMIN_PASSWORD`, `admin` / `admin` in `env.development`) |
 | **MinIO Console** | http://localhost:9001 | `minioadmin` / the `MINIO_ROOT_PASSWORD` value in your `.env` (`start-demo.sh` prints it on startup) |
 | **PostgreSQL** | localhost:5433 | Container listens on 5432 |
-| **Redis** | localhost:6380 | Container listens on 6379 |
 
 There is no service on port **3003** — in `docker-compose.yml` that port belongs
 to Grafana, which the demo does not start. Traefik (80/443/8090), Prometheus
@@ -180,7 +179,6 @@ there rather than retyping them.
 | Variable | Value in `env.development` | Description |
 |----------|----------------------------|-------------|
 | `DATABASE_URL` | `postgresql://grc:<POSTGRES_PASSWORD>@localhost:5433/gigachad_grc` | PostgreSQL connection (user `grc`, database `gigachad_grc`, host port 5433) |
-| `REDIS_URL` | `redis://:<REDIS_PASSWORD>@localhost:6380` | Redis connection |
 | `KEYCLOAK_REALM` | `gigachad-grc` | Realm imported from `auth/realm-export.json` |
 | `KEYCLOAK_CLIENT_ID` | `grc-services` | Backend client (the frontend uses `grc-frontend`) |
 | `NODE_ENV` | `development` | Must stay `development`; `DevAuthGuard` throws on `production`, which turns every controls endpoint into an HTTP 500 |
@@ -206,7 +204,7 @@ docker compose exec postgres psql -U grc -d gigachad_grc
 
 | Flag | Effect |
 |------|--------|
-| `--clean` | Also drop the PostgreSQL, Redis and MinIO volumes, so the next run starts from an empty database and re-seeds |
+| `--clean` | Also drop the PostgreSQL and MinIO volumes, so the next run starts from an empty database and re-seeds |
 | `--purge` | Everything `--clean` does, plus remove `.env`, `.demo/` and built output |
 
 To wipe and start over in one step:
@@ -225,7 +223,7 @@ their configuration from the environment, and their working directory has no
 ```bash
 npm run build:services            # builds services/shared + all six services
 
-set -a && . ./.env && set +a      # export DATABASE_URL, REDIS_URL, secrets...
+set -a && . ./.env && set +a      # export DATABASE_URL, secrets...
 
 cd services/controls && PORT=3001 node dist/main
 ```

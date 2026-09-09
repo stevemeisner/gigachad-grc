@@ -16,12 +16,6 @@ output "database_endpoint" {
   sensitive   = true
 }
 
-output "redis_endpoint" {
-  description = "Redis endpoint"
-  value       = module.redis.endpoint
-  sensitive   = true
-}
-
 output "s3_bucket_name" {
   description = "S3 bucket name for file storage"
   value       = module.s3.bucket_name

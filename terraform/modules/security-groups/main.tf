@@ -105,33 +105,3 @@ resource "aws_security_group" "rds" {
     }
   )
 }
-
-# Redis Security Group
-resource "aws_security_group" "redis" {
-  name        = "${var.name_prefix}-redis-sg"
-  description = "Security group for Redis cache"
-  vpc_id      = var.vpc_id
-
-  ingress {
-    description     = "Redis from ECS"
-    from_port       = 6379
-    to_port         = 6379
-    protocol        = "tcp"
-    security_groups = [aws_security_group.ecs.id]
-  }
-
-  egress {
-    description = "Allow all outbound traffic"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = merge(
-    var.tags,
-    {
-      Name = "${var.name_prefix}-redis-sg"
-    }
-  )
-}

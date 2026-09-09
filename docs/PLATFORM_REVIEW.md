@@ -126,7 +126,6 @@ Hardcoded system user instead of auth context:
 - ✅ Docker Compose configurations (dev & prod)
 - ✅ Traefik API gateway with routing
 - ✅ PostgreSQL database with schemas
-- ✅ Redis caching
 - ✅ MinIO object storage
 - ✅ Keycloak authentication
 - ✅ Okta OIDC integration ready

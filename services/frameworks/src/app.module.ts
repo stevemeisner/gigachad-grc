@@ -4,7 +4,6 @@ import { PrismaModule } from './prisma/prisma.module';
 import { FrameworksModule } from './frameworks/frameworks.module';
 import { AssessmentsModule } from './assessments/assessments.module';
 import { MappingsModule } from './mappings/mappings.module';
-import { EventsModule } from '@gigachad-grc/shared';
 
 @Module({
   imports: [
@@ -12,7 +11,6 @@ import { EventsModule } from '@gigachad-grc/shared';
       isGlobal: true,
     }),
     PrismaModule,
-    EventsModule,
     FrameworksModule,
     AssessmentsModule,
     MappingsModule,

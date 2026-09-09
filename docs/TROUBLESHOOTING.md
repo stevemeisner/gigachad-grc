@@ -31,7 +31,7 @@ tail -30 .demo/logs/frontend.log
 grep -i error .demo/logs/*.log
 ```
 
-Infrastructure (PostgreSQL, Redis, Keycloak, MinIO) runs in Docker, so those
+Infrastructure (PostgreSQL, Keycloak, MinIO) runs in Docker, so those
 logs come from Compose:
 
 ```bash
@@ -72,10 +72,9 @@ npm run build:shared
 
 **Cause:** Something is already listening on a port the demo needs — usually a
 previous run that was killed instead of stopped, or a locally installed
-PostgreSQL/Redis. Note that the demo deliberately publishes PostgreSQL on
-**5433** and Redis on **6380** rather than the defaults 5432/6379 so it cannot
-clash with a system install; a conflict on those two ports therefore means
-another copy of this stack is running.
+PostgreSQL. Note that the demo deliberately publishes PostgreSQL on **5433**
+rather than the default 5432 so it cannot clash with a system install; a
+conflict on that port therefore means another copy of this stack is running.
 
 **Solution:**
 
@@ -96,7 +95,6 @@ lsof -nP -iTCP:5433 -sTCP:LISTEN
 | 3000 | frontend (Vite dev server) |
 | 3001 / 3002 / 3004 / 3005 / 3006 / 3007 | controls / frameworks / policies / tprm / trust / audit |
 | 5433 | PostgreSQL (container port 5432) |
-| 6380 | Redis (container port 6379) |
 | 8080 | Keycloak |
 | 9000 / 9001 | MinIO API / console |
 
@@ -344,7 +342,7 @@ created by an older run preserves the broken state.
 **Solution:**
 
 ```bash
-./scripts/stop-demo.sh --clean   # drops the postgres, redis and minio volumes
+./scripts/stop-demo.sh --clean   # drops the postgres and minio volumes
 ./scripts/start-demo.sh
 ```
 

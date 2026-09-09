@@ -130,7 +130,6 @@ openssl rand -base64 64 > /tmp/jwt_secret
 openssl rand -base64 64 > /tmp/session_secret
 openssl rand -hex 32 > /tmp/encryption_key
 openssl rand -base64 32 > /tmp/postgres_password
-openssl rand -base64 32 > /tmp/redis_password
 openssl rand -base64 32 > /tmp/keycloak_password
 openssl rand -base64 20 > /tmp/minio_password
 
@@ -156,9 +155,6 @@ KEYCLOAK_HOSTNAME=auth.your-domain.com
 
 # Database password (use generated value)
 POSTGRES_PASSWORD=$(cat /tmp/postgres_password)
-
-# Redis password (use generated value)
-REDIS_PASSWORD=$(cat /tmp/redis_password)
 
 # Keycloak admin password (use generated value)
 KEYCLOAK_ADMIN_PASSWORD=$(cat /tmp/keycloak_password)
@@ -568,9 +564,6 @@ docker compose -f docker-compose.prod.yml exec postgres psql -U grc_prod_user -d
 
 # Analyze slow queries
 docker compose -f docker-compose.prod.yml exec postgres psql -U grc_prod_user -d gigachad_grc_prod -c "SELECT * FROM pg_stat_statements ORDER BY total_time DESC LIMIT 10;"
-
-# Clear Redis cache
-docker compose -f docker-compose.prod.yml exec redis redis-cli -a $REDIS_PASSWORD FLUSHALL
 ```
 
 ### Getting Help

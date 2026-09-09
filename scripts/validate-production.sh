@@ -158,7 +158,7 @@ else
 fi
 
 # Check for default passwords
-DEFAULT_PASSWORDS=("password" "grc_secret" "redis_secret" "minioadmin" "admin" "")
+DEFAULT_PASSWORDS=("password" "grc_secret" "minioadmin" "admin" "")
 
 check_default_password() {
     local var_name=$1
@@ -177,13 +177,6 @@ if check_default_password "POSTGRES_PASSWORD"; then
          "Set a strong unique password"
 else
     pass "POSTGRES_PASSWORD is not using default value"
-fi
-
-if check_default_password "REDIS_PASSWORD"; then
-    fail "REDIS_PASSWORD is using a default/weak value" \
-         "Set a strong unique password"
-else
-    pass "REDIS_PASSWORD is not using default value"
 fi
 
 if check_default_password "MINIO_ROOT_PASSWORD"; then

@@ -35,7 +35,6 @@
 | VS Code | IDE with recommended extensions |
 | Postman/Insomnia | API testing |
 | TablePlus/DBeaver | Database GUI |
-| Redis Commander | Redis GUI |
 
 ### VS Code Extensions
 
@@ -134,7 +133,6 @@ npm run dev
 | Keycloak Admin | http://localhost:8080 | admin / admin |
 | MinIO Console | http://localhost:9001 | `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` from `.env` |
 | PostgreSQL | localhost:5433 | `POSTGRES_USER` / `POSTGRES_PASSWORD` from `.env` |
-| Redis | localhost:6380 | `REDIS_PASSWORD` from `.env` |
 
 Open `http://localhost:3000`, not `127.0.0.1:3000` — only `localhost` is in
 Keycloak's redirect allow-list (`auth/realm-export.json`). Port 3000 is the Vite
@@ -246,7 +244,7 @@ gigachad-grc/
 
 ```bash
 # Start infrastructure only
-docker compose up -d postgres redis keycloak minio traefik
+docker compose up -d postgres keycloak minio traefik
 
 # Build the shared library first — every service imports @gigachad-grc/shared
 npm run build:shared
@@ -813,7 +811,7 @@ npx husky add .husky/pre-commit "npx lint-staged"
 ### Common Issues
 
 **Port already in use** (3000 frontend, 3001–3007 services, 5433 Postgres,
-6380 Redis, 8080 Keycloak, 9000/9001 MinIO):
+8080 Keycloak, 9000/9001 MinIO):
 ```bash
 lsof -nP -iTCP:3000 -sTCP:LISTEN
 kill -9 <PID>

@@ -31,7 +31,6 @@ GigaChad GRC is a comprehensive Governance, Risk, and Compliance (GRC) platform 
 | **API Gateway** | Traefik v3.0 |
 | **Backend Services** | NestJS, Prisma ORM |
 | **Database** | PostgreSQL 16 |
-| **Cache** | Redis 7 |
 | **Object Storage** | MinIO (S3-compatible) |
 | **Authentication** | Keycloak 25 (OAuth 2.0 / OIDC) |
 | **Container Orchestration** | Docker Compose / Kubernetes |
@@ -91,17 +90,17 @@ GigaChad GRC is a comprehensive Governance, Risk, and Compliance (GRC) platform 
                                         │
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │                              DATA LAYER                                          │
-│  ┌────────────────────────────────────┐  ┌────────────────────────────────────┐ │
-│  │          POSTGRESQL                │  │             REDIS                  │ │
-│  │          :5432                     │  │             :6379                  │ │
-│  │                                    │  │                                    │ │
-│  │  Schemas:                          │  │  Uses:                             │ │
-│  │  - controls                        │  │  - Session cache                   │ │
-│  │  - frameworks                      │  │  - Query cache                     │ │
-│  │  - integrations                    │  │  - Rate limit tracking             │ │
-│  │  - policies                        │  │  - Real-time pub/sub               │ │
-│  │  - shared                          │  │                                    │ │
-│  └────────────────────────────────────┘  └────────────────────────────────────┘ │
+│  ┌────────────────────────────────────┐                                         │
+│  │          POSTGRESQL                │                                         │
+│  │          :5432                     │                                         │
+│  │                                    │                                         │
+│  │  Schemas:                          │                                         │
+│  │  - controls                        │                                         │
+│  │  - frameworks                      │                                         │
+│  │  - integrations                    │                                         │
+│  │  - policies                        │                                         │
+│  │  - shared                          │                                         │
+│  └────────────────────────────────────┘                                         │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -324,18 +323,18 @@ Response format:
 - `policies` - Policy management
 - `shared` - Cross-cutting concerns
 
-### Redis Cache
+### In-Process Cache
 
-- **Version**: 7-alpine
-- **Port**: 6379 (internal), 6380 (external in dev)
-- **Persistence**: AOF enabled
-- **Memory Policy**: allkeys-lru
+There is no cache server. `CacheService` (`services/shared/src/cache/cache.service.ts`)
+is a plain in-memory `Map` with a TTL, living inside each service process.
 
 **Use Cases**:
-- Session caching
-- Query result caching
-- Rate limit tracking
-- Real-time pub/sub
+- Dashboard aggregates (`dashboard.service.ts`)
+- Risk scoring intermediates (`risk.service.ts`)
+
+Because the cache is per-process, it is not shared between replicas and is lost
+on restart. Nothing depends on it for correctness — it is a latency optimisation
+in front of PostgreSQL.
 
 ### MinIO Object Storage
 
@@ -396,7 +395,7 @@ networks:
 | Zone | Network | Purpose | Components |
 |------|---------|---------|------------|
 | DMZ | grc-dmz | External-facing | Traefik, Frontend, Keycloak, MinIO |
-| Internal | grc-network | Backend services | All microservices, PostgreSQL, Redis |
+| Internal | grc-network | Backend services | All microservices, PostgreSQL |
 
 ---
 
@@ -484,7 +483,7 @@ tmpfs:
    ▼
 6. Service processes request
    │
-   ├─► Check Redis cache
+   ├─► Check in-process cache
    │
    ├─► Query PostgreSQL
    │
@@ -497,20 +496,17 @@ tmpfs:
    - etc.
 ```
 
-### Event Flow (Async)
+### Service-to-Service Communication
 
-```
-1. Service emits event
-   │
-   ▼
-2. Event published to Redis pub/sub
-   │
-   ▼
-3. Subscribed services receive event
-   │
-   ▼
-4. Services process event independently
-```
+Services communicate **synchronously over HTTP** today. There is no message
+broker, no queue and no event bus: a service that needs data owned by another
+service calls that service's REST API and waits for the response.
+
+An asynchronous event bus (Redis pub/sub) was designed and partially written,
+but it was never wired into any service — no code ever published or subscribed
+to an event — so it has been removed rather than left as misleading scaffolding.
+If asynchronous fan-out is needed later, it should be designed against the
+requirement that actually motivates it.
 
 ---
 
@@ -518,10 +514,19 @@ tmpfs:
 
 ### Horizontal Scaling
 
-```yaml
-# Scale specific services
-docker-compose up -d --scale controls=3 --scale frameworks=2
-```
+Every service currently assumes it is the **only** replica of itself. Two things
+must be solved before running more than one:
+
+1. **Rate limiting is per-instance.** `ThrottlerModule` in
+   `services/controls/src/app.module.ts` is configured with no shared `storage`,
+   so each replica counts requests in its own memory and the effective limit
+   multiplies by the replica count. The other five services register no
+   `ThrottlerModule` at all, so they are not rate limited in-process.
+2. **Schedulers are unguarded.** `collectors.scheduler.ts:33` and
+   `scheduled-notifications.service.ts:69` (both in `services/controls`) drive
+   work from `setInterval`. Every replica would run them, duplicating collector
+   runs and sending notifications more than once. The fix is a PostgreSQL
+   advisory lock around each scheduled tick, not a new piece of infrastructure.
 
 ### Load Balancing
 
@@ -539,8 +544,10 @@ Traefik automatically load balances across service replicas:
 
 ### Cache Scaling
 
-- **Redis Cluster**: For high-availability caching
-- **Cache Invalidation**: Pattern-based key deletion on updates
+The cache is an in-process `Map` per service instance, so it does not scale
+across replicas — each one warms its own copy. Entries expire by TTL; there is
+no cross-instance invalidation. Anything requiring a coherent shared cache would
+need a cache server, which the system deliberately does not run today.
 
 ### Resource Limits (Production)
 

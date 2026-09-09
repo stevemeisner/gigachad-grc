@@ -271,7 +271,7 @@ function ArchitectureDocs() {
               </tr>
               <tr>
                 <td className="px-4 py-3 text-surface-300">Cache</td>
-                <td className="px-4 py-3 text-surface-400">Redis</td>
+                <td className="px-4 py-3 text-surface-400">In-process (per-service TTL cache)</td>
               </tr>
               <tr>
                 <td className="px-4 py-3 text-surface-300">Authentication</td>
@@ -417,9 +417,6 @@ KEYCLOAK_REALM=gigachad-grc
 KEYCLOAK_CLIENT_ID=grc-frontend
 KEYCLOAK_CLIENT_SECRET=your-client-secret
 
-# Redis (optional, for caching)
-REDIS_URL=redis://localhost:6379
-
 # Service Ports
 CONTROLS_SERVICE_PORT=3001
 FRAMEWORKS_SERVICE_PORT=3002
@@ -510,10 +507,6 @@ function DeploymentDocs() {
           <li className="flex gap-3">
             <span className="text-brand-400">•</span>
             <span>PostgreSQL 15+ (or use included Docker container)</span>
-          </li>
-          <li className="flex gap-3">
-            <span className="text-brand-400">•</span>
-            <span>Redis 7+ (optional, for caching)</span>
           </li>
           <li className="flex gap-3">
             <span className="text-brand-400">•</span>
@@ -646,7 +639,7 @@ cd gigachad-grc
 # Install dependencies
 npm install
 
-# Start infrastructure (PostgreSQL, Redis, Keycloak)
+# Start infrastructure (PostgreSQL, Keycloak)
 docker-compose -f docker-compose.dev.yml up -d
 
 # Generate Prisma client

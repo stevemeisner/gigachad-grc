@@ -12,7 +12,7 @@ The System Health Banner displays critical warnings at the top of the admin dash
 
 ### Security Issues
 - **Development Authentication in Production**: Critical alert if using DevAuthGuard in production
-- **Default Passwords**: Warning if PostgreSQL, Redis, or MinIO are using default passwords
+- **Default Passwords**: Warning if PostgreSQL or MinIO are using default passwords
 - **Missing Encryption Key**: Alert if ENCRYPTION_KEY is not set or too short
 - **Missing JWT Secret**: Warning if JWT_SECRET is not properly configured
 
@@ -105,7 +105,7 @@ npm run validate:production:strict
 
 When running in Docker, the entrypoint script automatically:
 
-1. **Waits for Dependencies** - Ensures PostgreSQL and Redis are ready
+1. **Waits for Dependencies** - Ensures PostgreSQL is ready
 2. **Runs Migrations** - Applies pending database migrations
 3. **Schedules Backups** - Sets up cron job if AUTO_BACKUP_ENABLED=true
 4. **Checks Configuration** - Logs warnings for production misconfigurations

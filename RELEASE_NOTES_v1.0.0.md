@@ -120,7 +120,6 @@ This is the initial public release. Future releases will document any breaking c
 |----------|-------------|
 | `ENCRYPTION_KEY` | **Required.** 32+ character key for credential encryption |
 | `POSTGRES_PASSWORD` | Database password |
-| `REDIS_PASSWORD` | Redis cache password |
 | `JWT_SECRET` | JWT signing secret |
 
 See `deploy/env.example` for the complete configuration reference.

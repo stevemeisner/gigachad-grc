@@ -206,7 +206,8 @@ Review these services for potential optimization:
 
 **Status:** ✅ Implemented
 
-Redis caching is in use for dashboard data with appropriate TTLs.
+An in-process cache (`CacheService`, a TTL `Map` inside each service) is used
+for dashboard data. There is no cache server.
 
 ---
 

@@ -10,7 +10,7 @@ bash scripts/data-scrub.sh
 
 # Or manually:
 docker-compose down
-docker volume rm gigachad-grc_postgres_data gigachad-grc_redis_data gigachad-grc_minio_data
+docker volume rm gigachad-grc_postgres_data gigachad-grc_minio_data
 rm -rf storage/
 ```
 
@@ -33,11 +33,6 @@ rm -rf storage/
 - ✅ All assessment documentation
 - ✅ All audit evidence files
 
-### Cache (Redis)
-- ✅ All session data
-- ✅ All cached queries
-- ✅ All temporary data
-
 ### Local Files
 - ✅ Local storage directory (if using local storage)
 
@@ -50,7 +45,6 @@ These credentials are included for development ONLY and are visible in the code:
 | Service | Username/Key | Password/Secret | Location |
 |---------|--------------|-----------------|----------|
 | **PostgreSQL** | `grc` | `grc_secret` | docker-compose.yml |
-| **Redis** | N/A | `redis_secret` | docker-compose.yml |
 | **Keycloak Admin** | `admin` | `admin` | docker-compose.yml |
 | **MinIO** | `minioadmin` | `minioadminpassword` | docker-compose.yml |
 
@@ -102,7 +96,6 @@ nano .env  # Update all values
 
 Required changes:
 - [ ] `POSTGRES_PASSWORD` - Use 32+ character random password
-- [ ] `REDIS_PASSWORD` - Use 32+ character random password
 - [ ] `KEYCLOAK_ADMIN_PASSWORD` - Use 32+ character random password
 - [ ] `MINIO_ROOT_PASSWORD` - Use 32+ character random password
 
@@ -187,7 +180,6 @@ Update Traefik configuration for HTTPS.
 
 Set up credential rotation schedule:
 - PostgreSQL: Every 90 days
-- Redis: Every 90 days
 - Keycloak: Every 90 days
 - MinIO: Every 90 days
 - API Keys: Every 30 days
@@ -279,10 +271,6 @@ docker-compose exec postgres pg_dump -U grc gigachad_grc > backup_$(date +%Y%m%d
 
 # Backup MinIO (evidence files)
 docker-compose exec minio mc mirror /data/grc-evidence ./minio-backup/
-
-# Backup Redis (cache - usually not needed)
-docker-compose exec redis redis-cli --rdb /data/dump.rdb
-docker cp grc-redis:/data/dump.rdb ./redis-backup.rdb
 ```
 
 ## Restore from Backup

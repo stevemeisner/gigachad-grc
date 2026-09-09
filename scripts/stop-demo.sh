@@ -9,7 +9,7 @@
 #   ./scripts/stop-demo.sh --clean    ...and delete database/storage volumes
 #   ./scripts/stop-demo.sh --purge    ...and also delete .env and built output
 #
-# --clean drops the PostgreSQL, Redis and MinIO volumes, so the next run
+# --clean drops the PostgreSQL and MinIO volumes, so the next run
 # starts from an empty database and re-seeds demo data.
 # ============================================================================
 

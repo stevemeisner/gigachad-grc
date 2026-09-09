@@ -63,7 +63,6 @@ Use this checklist to ensure a successful production deployment of GigaChad GRC.
 ### Phase 2: Security Configuration (15 minutes)
 
 - [ ] **PostgreSQL password** set (32+ characters)
-- [ ] **Redis password** set (32+ characters)
 - [ ] **Keycloak admin password** set (32+ characters)
 - [ ] **MinIO credentials** set (20+ characters)
 - [ ] **JWT_SECRET** generated (64 characters)
@@ -81,7 +80,6 @@ Use this checklist to ensure a successful production deployment of GigaChad GRC.
 - [ ] **No error logs** in initial startup
 - [ ] **Health checks passing** for all services
 - [ ] **Database initialized** successfully
-- [ ] **Redis responding** to ping
 
 ### Phase 4: SSL/TLS Configuration (10 minutes)
 
@@ -135,7 +133,6 @@ Use this checklist to ensure a successful production deployment of GigaChad GRC.
 - [ ] **API endpoints accessible**
 - [ ] **Authentication working** end-to-end
 - [ ] **File uploads working**
-- [ ] **Cache functioning** (Redis)
 
 ### Phase 6: Backup Configuration (15 minutes)
 

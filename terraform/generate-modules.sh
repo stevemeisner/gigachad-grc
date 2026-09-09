@@ -15,7 +15,6 @@ echo "Generating Terraform modules..."
 #
 # - modules/alb/        (Application Load Balancer)
 # - modules/rds/        (PostgreSQL Database)
-# - modules/redis/      (ElastiCache Redis)
 # - modules/s3/         (S3 Bucket)
 # - modules/ecs/        (ECS Fargate Cluster and Services)
 #
@@ -30,7 +29,6 @@ echo ""
 echo "Remaining modules to create manually:"
 echo "  - ALB (Application Load Balancer)"
 echo "  - RDS (PostgreSQL Database)"
-echo "  - Redis (ElastiCache)"
 echo "  - S3 (File Storage)"
 echo "  - ECS (Container Services) - Most complex"
 echo ""

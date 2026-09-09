@@ -731,12 +731,12 @@ The diagram below is the full container topology described by `docker-compose.ym
 │  :3001   │  :3002   │  :3004   │  :3005   │  :3006   │  :3007   │:3000
 ├──────────┴──────────┴──────────┴──────────┴──────────┴──────────┴────┤
 │                          Shared Library                                │
-│          (Prisma Schema, Types, Auth, Storage, Events)                 │
-├──────────┬──────────┬──────────┬──────────────────────────────────────┤
-│PostgreSQL│  Redis   │ Keycloak │              MinIO                   │
-│  :5433   │  :6380   │  :8080   │         :9000 / :9001                │
-│(Database)│ (Cache)  │  (Auth)  │        (Object Storage)              │
-└──────────┴──────────┴──────────┴──────────────────────────────────────┘
+│              (Prisma Schema, Types, Auth, Storage)                     │
+├──────────┬──────────┬─────────────────────────────────────────────────┤
+│PostgreSQL│ Keycloak │                     MinIO                        │
+│  :5433   │  :8080   │                :9000 / :9001                     │
+│(Database)│  (Auth)  │              (Object Storage)                    │
+└──────────┴──────────┴─────────────────────────────────────────────────┘
 
 Frontend (React + Vite)
     ↓
@@ -752,7 +752,6 @@ Microservices Layer:
     ↓
 Infrastructure Layer:
   - PostgreSQL (Single database, multi-tenant schema)
-  - Redis (Caching + Session Management)
   - Keycloak (SSO + RBAC)
   - MinIO (S3-compatible object storage)
 ```
@@ -764,7 +763,6 @@ Infrastructure Layer:
 - **Database**: PostgreSQL with Prisma ORM
 - **Authentication**: Keycloak (SSO, RBAC)
 - **API Gateway**: Traefik
-- **Cache/Events**: Redis
 - **Storage**: MinIO (S3-compatible)
 - **Containers**: Docker with Docker Compose
 
@@ -788,7 +786,7 @@ cd gigachad-grc
 
 1. Checks prerequisites (Docker, Compose v2, Node.js 18+, npm) and that every required host port is free, naming any conflict instead of failing halfway.
 2. Creates `.env` from `env.development` if it is missing, and refuses to continue when `.env` sets `NODE_ENV=production`.
-3. Starts infrastructure in Docker — `docker compose up -d postgres redis keycloak minio` — then waits for PostgreSQL and for the Keycloak realm to import.
+3. Starts infrastructure in Docker — `docker compose up -d postgres keycloak minio` — then waits for PostgreSQL and for the Keycloak realm to import.
 4. Creates the database schema with `prisma db push` against `services/shared/prisma/schema.prisma`, then applies `database/dev-bootstrap.sql`.
 5. Runs `npm install` if `node_modules` is absent, then builds the shared library and the six services in parallel.
 6. Starts the six NestJS services on the host and waits for each port to accept connections.
@@ -822,7 +820,7 @@ Use `localhost`, not `127.0.0.1`. The Keycloak client in `auth/realm-export.json
 
 ```bash
 ./scripts/stop-demo.sh           # stop host processes and containers, keep data (npm run demo:stop)
-./scripts/stop-demo.sh --clean   # also drop the PostgreSQL, Redis and MinIO volumes
+./scripts/stop-demo.sh --clean   # also drop the PostgreSQL and MinIO volumes
 ./scripts/stop-demo.sh --purge   # --clean, plus remove .env, .demo/ and build output
 ```
 
@@ -834,9 +832,9 @@ The demo splits the stack in two:
 
 | Runs in Docker | Runs on the host |
 |----------------|------------------|
-| PostgreSQL, Redis, Keycloak, MinIO | The six NestJS services and the Vite dev server |
+| PostgreSQL, Keycloak, MinIO | The six NestJS services and the Vite dev server |
 
-`env.development` is written for exactly this layout: `DATABASE_URL`, `REDIS_URL`, `MINIO_ENDPOINT` and `KEYCLOAK_URL` all point at `localhost` and the published container ports.
+`env.development` is written for exactly this layout: `DATABASE_URL`, `MINIO_ENDPOINT` and `KEYCLOAK_URL` all point at `localhost` and the published container ports.
 
 Why not containerise the services as well? `docker-compose.yml` can build all six, but the first build of those images takes roughly 25-60 minutes, while compiling them on the host takes seconds. The host is the fast path for day-to-day work.
 
@@ -904,7 +902,7 @@ npm --prefix services/controls run start:dev   # watch mode on port 3001
 npm --prefix frontend run dev                  # Vite on port 3000 (set in frontend/vite.config.ts)
 ```
 
-Build every backend at once with `npm run build:services`. Infrastructure still has to be up: `docker compose up -d postgres redis keycloak minio`.
+Build every backend at once with `npm run build:services`. Infrastructure still has to be up: `docker compose up -d postgres keycloak minio`.
 
 ### Troubleshooting
 
@@ -964,7 +962,6 @@ All critical data is stored in Docker named volumes that survive container resta
 |-----------|--------|----------------|
 | Database | `postgres_data` | ✅ Yes |
 | Evidence Files | `minio_data` | ✅ Yes |
-| Cache/Sessions | `redis_data` | ✅ Yes |
 | Metrics | `prometheus_data` | ✅ Yes |
 
 **Important**: Running `./scripts/stop-demo.sh --clean` will delete volumes. Always run backups before maintenance.
@@ -1100,7 +1097,6 @@ One authoritative list of host ports. Each backend service serves Swagger at `/a
 | **Trust** | 3006 | ✅ | http://localhost:3006/api/docs |
 | **Audit** | 3007 | ✅ | http://localhost:3007/api/docs |
 | **PostgreSQL** | 5433 | ✅ | Container listens on 5432 |
-| **Redis** | 6380 | ✅ | Container listens on 6379 |
 | **Keycloak** | 8080 | ✅ | Admin console; `KEYCLOAK_ADMIN` / `KEYCLOAK_ADMIN_PASSWORD` from `.env` (`admin` / `admin` in `env.development`) |
 | **MinIO API** | 9000 | ✅ | S3-compatible object storage |
 | **MinIO Console** | 9001 | ✅ | `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` from `.env`; `start-demo.sh` prints both when it finishes |
@@ -1137,7 +1133,6 @@ Defaults below are the fallbacks in `docker-compose.yml`. **None of these fallba
 | `POSTGRES_USER` | Database user | grc |
 | `POSTGRES_PASSWORD` | Database password | grc_secret |
 | `POSTGRES_DB` | Database name | gigachad_grc |
-| `REDIS_PASSWORD` | Redis password | redis_secret |
 | `KEYCLOAK_ADMIN` | Keycloak admin user | admin |
 | `KEYCLOAK_ADMIN_PASSWORD` | Keycloak admin password | admin |
 | `KEYCLOAK_REALM` | Realm imported from `auth/realm-export.json` | gigachad-grc |

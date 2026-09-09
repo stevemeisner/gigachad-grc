@@ -165,7 +165,6 @@ Response:
 {
   "status": "healthy",
   "database": "connected",
-  "redis": "connected",
   "version": "1.0.0"
 }
 ```

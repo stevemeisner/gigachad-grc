@@ -18,19 +18,16 @@ if [ "$confirm" != "YES" ]; then
 fi
 
 echo ""
-echo "⏸️  Step 1/5: Stopping all services..."
+echo "⏸️  Step 1/4: Stopping all services..."
 docker-compose down
 
-echo "🗑️  Step 2/5: Removing database data..."
+echo "🗑️  Step 2/4: Removing database data..."
 docker volume rm gigachad-grc_postgres_data 2>/dev/null && echo "   ✓ PostgreSQL data removed" || echo "   ℹ️  No PostgreSQL data to remove"
 
-echo "🗑️  Step 3/5: Removing cache data..."
-docker volume rm gigachad-grc_redis_data 2>/dev/null && echo "   ✓ Redis data removed" || echo "   ℹ️  No Redis data to remove"
-
-echo "🗑️  Step 4/5: Removing object storage..."
+echo "🗑️  Step 3/4: Removing object storage..."
 docker volume rm gigachad-grc_minio_data 2>/dev/null && echo "   ✓ MinIO data removed" || echo "   ℹ️  No MinIO data to remove"
 
-echo "🗑️  Step 5/5: Removing local files..."
+echo "🗑️  Step 4/4: Removing local files..."
 rm -rf ./storage 2>/dev/null && echo "   ✓ Local storage removed" || echo "   ℹ️  No local storage to remove"
 
 echo ""

@@ -7,11 +7,10 @@
 3. [Service Configuration](#service-configuration)
 4. [Traefik Configuration](#traefik-configuration)
 5. [Database Configuration](#database-configuration)
-6. [Redis Configuration](#redis-configuration)
-7. [Keycloak Configuration](#keycloak-configuration)
-8. [MinIO Configuration](#minio-configuration)
-9. [Security Configuration](#security-configuration)
-10. [Monitoring Configuration](#monitoring-configuration)
+6. [Keycloak Configuration](#keycloak-configuration)
+7. [MinIO Configuration](#minio-configuration)
+8. [Security Configuration](#security-configuration)
+9. [Monitoring Configuration](#monitoring-configuration)
 
 ---
 
@@ -87,20 +86,6 @@ chmod 600 .env  # Restrict permissions
 **Connection String Format**:
 ```
 postgresql://USER:PASSWORD@HOST:PORT/DATABASE
-```
-
-#### Cache (Redis)
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `REDIS_PASSWORD` | Yes | - | Redis password |
-| `REDIS_URL` | Auto | - | Full Redis URL (auto-generated) |
-| `REDIS_MAX_MEMORY` | No | `512mb` | Maximum memory allocation |
-| `REDIS_LOG_LEVEL` | No | `warning` | Log level: `debug`, `verbose`, `notice`, `warning` |
-
-**URL Format**:
-```
-redis://:PASSWORD@HOST:PORT
 ```
 
 #### Authentication (Keycloak)
@@ -234,7 +219,6 @@ environment:
   NODE_ENV: production
   PORT: 3001
   DATABASE_URL: postgresql://...
-  REDIS_URL: redis://...
   MINIO_ENDPOINT: minio
   MINIO_PORT: 9000
   MINIO_USE_SSL: false
@@ -257,7 +241,6 @@ Each service accepts:
 |----------|-------------|
 | `PORT` | Service port |
 | `DATABASE_URL` | PostgreSQL connection string |
-| `REDIS_URL` | Redis connection string |
 | `MINIO_*` | MinIO configuration |
 | `KEYCLOAK_*` | Keycloak configuration |
 | `JWT_SECRET` | JWT signing secret |
@@ -456,45 +439,6 @@ default_pool_size = 25
 min_pool_size = 5
 reserve_pool_size = 5
 reserve_pool_timeout = 3
-```
-
----
-
-## Redis Configuration
-
-### `redis.conf`
-
-```conf
-# Network
-bind 0.0.0.0
-port 6379
-protected-mode yes
-requirepass ${REDIS_PASSWORD}
-
-# Memory
-maxmemory 512mb
-maxmemory-policy allkeys-lru
-
-# Persistence
-appendonly yes
-appendfsync everysec
-save 900 1
-save 300 10
-save 60 10000
-
-# Logging
-loglevel warning
-logfile ""
-
-# Limits
-maxclients 10000
-timeout 300
-
-# Security
-rename-command FLUSHALL ""
-rename-command FLUSHDB ""
-rename-command DEBUG ""
-rename-command CONFIG "CONFIG_SECURE_KEY"
 ```
 
 ---
@@ -720,9 +664,6 @@ docker-compose config | grep -A5 controls
 ```bash
 # Database
 docker exec grc-controls nc -zv postgres 5432
-
-# Redis
-docker exec grc-controls redis-cli -h redis -a $REDIS_PASSWORD ping
 
 # Keycloak
 curl -s http://keycloak:8080/auth/health | jq

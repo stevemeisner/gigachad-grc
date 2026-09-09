@@ -38,19 +38,6 @@ DATABASE_POOL_MAX=10
 DATABASE_POOL_IDLE_TIMEOUT=10000
 ```
 
-### Redis Configuration
-
-```bash
-# Simple connection
-REDIS_URL=redis://localhost:6379
-
-# With password
-REDIS_URL=redis://:password@localhost:6379
-
-# With database number
-REDIS_URL=redis://localhost:6379/0
-```
-
 ### Authentication (Keycloak)
 
 ```bash
@@ -196,7 +183,6 @@ When using Docker Compose, environment variables can be set:
 ```bash
 # .env
 DATABASE_URL=postgresql://grc_user:secret@postgres:5432/gigachad_grc
-REDIS_URL=redis://redis:6379
 NODE_ENV=production
 ```
 
@@ -229,7 +215,6 @@ services:
 ```bash
 NODE_ENV=development
 DATABASE_URL=postgresql://grc_user:grc_password@localhost:5432/gigachad_grc
-REDIS_URL=redis://localhost:6379
 KEYCLOAK_URL=http://localhost:8080
 KEYCLOAK_REALM=gigachad-grc
 KEYCLOAK_CLIENT_ID=grc-backend
@@ -242,7 +227,6 @@ LOG_LEVEL=debug
 ```bash
 NODE_ENV=production
 DATABASE_URL=postgresql://grc_user:SECURE_PASSWORD@db.yourcompany.com:5432/gigachad_grc
-REDIS_URL=redis://:REDIS_PASSWORD@redis.yourcompany.com:6379
 KEYCLOAK_URL=https://auth.yourcompany.com
 KEYCLOAK_REALM=gigachad-grc
 KEYCLOAK_CLIENT_ID=grc-backend

@@ -117,22 +117,6 @@ module "rds" {
   tags = local.common_tags
 }
 
-# ElastiCache Redis
-module "redis" {
-  source = "./modules/redis"
-
-  name_prefix        = local.name_prefix
-  vpc_id             = module.vpc.vpc_id
-  private_subnet_ids = module.vpc.private_subnet_ids
-  security_group_ids = [module.security_groups.redis_security_group_id]
-
-  node_type          = var.redis_node_type
-  num_cache_nodes    = var.redis_num_cache_nodes
-  engine_version     = var.redis_engine_version
-
-  tags = local.common_tags
-}
-
 # S3 Bucket for File Storage
 module "s3" {
   source = "./modules/s3"
@@ -163,10 +147,6 @@ module "ecs" {
   database_name     = var.database_name
   database_username = var.database_username
   database_password = var.database_password
-
-  # Redis configuration
-  redis_host = module.redis.endpoint
-  redis_port = module.redis.port
 
   # S3 configuration
   s3_bucket_name = module.s3.bucket_name

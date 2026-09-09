@@ -32,7 +32,7 @@ echo "2. Checking for hardcoded credentials in source code..."
 hardcoded=$(grep -r -i "password.*=.*['\"]" \
     --include="*.ts" --include="*.tsx" --include="*.js" --include="*.jsx" \
     --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=.git \
-    . 2>/dev/null | grep -v "POSTGRES_PASSWORD" | grep -v "REDIS_PASSWORD" | grep -v "password:" | head -20)
+    . 2>/dev/null | grep -v "POSTGRES_PASSWORD" | grep -v "password:" | head -20)
 
 if [ -n "$hardcoded" ]; then
     echo -e "${YELLOW}⚠️  Potential hardcoded credentials found:${NC}"
@@ -45,7 +45,7 @@ fi
 
 # Check docker-compose for default credentials
 echo "3. Checking docker-compose.yml for default credentials..."
-defaults=$(grep -E "grc_secret|redis_secret|admin|minioadmin" docker-compose.yml)
+defaults=$(grep -E "grc_secret|admin|minioadmin" docker-compose.yml)
 if [ -n "$defaults" ]; then
     echo -e "${YELLOW}⚠️  Default credentials found in docker-compose.yml:${NC}"
     echo "   These are OK as fallbacks, but should be overridden via .env"
@@ -106,7 +106,6 @@ echo "  5. Rotate credentials regularly"
 echo ""
 echo -e "${YELLOW}⚠️  Default Development Credentials:${NC}"
 echo "  PostgreSQL: grc / grc_secret"
-echo "  Redis: redis_secret"
 echo "  Keycloak: admin / admin"
 echo "  MinIO: minioadmin / minioadminpassword"
 echo ""

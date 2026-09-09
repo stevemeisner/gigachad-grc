@@ -54,12 +54,6 @@ route:
       receiver: 'database-receiver'
       group_wait: 10s
 
-    # Redis alerts
-    - match:
-        alertname: RedisDown
-      receiver: 'cache-receiver'
-      group_wait: 10s
-
 # Receiver configurations
 receivers:
   - name: 'default-receiver'
@@ -92,11 +86,6 @@ receivers:
   - name: 'database-receiver'
     # email_configs:
     #   - to: 'dba@example.com'
-    #     send_resolved: true
-
-  - name: 'cache-receiver'
-    # email_configs:
-    #   - to: 'devops@example.com'
     #     send_resolved: true
 
 # Inhibition rules

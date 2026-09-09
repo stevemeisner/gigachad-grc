@@ -9,7 +9,6 @@ The deployment creates:
 - **Application Load Balancer** with optional SSL/TLS
 - **ECS Fargate** cluster running microservices
 - **RDS PostgreSQL** database with automatic backups
-- **ElastiCache Redis** for caching and sessions
 - **S3** bucket for file storage (policies, evidence, etc.)
 - **Security Groups** with least-privilege access
 
@@ -87,7 +86,6 @@ We provide three pre-configured sizes:
 **Cost**: ~$200-300/month
 - Single AZ
 - db.t3.medium RDS
-- cache.t3.small Redis
 - 1 ECS task per service
 
 ```bash
@@ -100,7 +98,6 @@ terraform apply
 **Cost**: ~$500-800/month
 - Multi-AZ
 - db.t3.large RDS
-- cache.t3.medium Redis
 - 2 ECS tasks per service
 
 ```bash
@@ -113,7 +110,6 @@ terraform apply
 **Cost**: ~$1500-2500/month
 - Multi-AZ with auto-scaling
 - db.r6g.xlarge RDS
-- cache.r6g.large Redis cluster
 - 4+ ECS tasks with auto-scaling
 
 ```bash
@@ -198,7 +194,6 @@ Key metrics to monitor:
 - **ECS Service**: CPU/Memory utilization
 - **RDS**: CPU, connections, storage
 - **ALB**: Request count, target response time
-- **Redis**: CPU, evictions, memory
 
 ## Backup and Disaster Recovery
 

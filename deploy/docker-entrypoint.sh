@@ -90,33 +90,6 @@ wait_for_postgres() {
     return 1
 }
 
-wait_for_redis() {
-    if [ -z "${REDIS_URL:-}" ] && [ -z "${REDIS_HOST:-}" ]; then
-        return 0
-    fi
-    
-    log_info "Waiting for Redis to be ready..."
-    
-    local count=0
-    local max_tries=30
-    
-    REDIS_HOST="${REDIS_HOST:-redis}"
-    REDIS_PORT="${REDIS_PORT:-6379}"
-    
-    while [ $count -lt $max_tries ]; do
-        if redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" ping 2>/dev/null | grep -q PONG; then
-            log_success "Redis is ready"
-            return 0
-        fi
-        
-        count=$((count + 1))
-        sleep 1
-    done
-    
-    log_warn "Redis did not respond (non-critical, continuing...)"
-    return 0
-}
-
 ################################################################################
 # Database Migrations
 ################################################################################
@@ -195,11 +168,6 @@ check_production_config() {
     # Check for default passwords
     if [ "${POSTGRES_PASSWORD:-}" = "grc_secret" ]; then
         log_warn "⚠️  POSTGRES_PASSWORD is using default value!"
-        warnings=$((warnings + 1))
-    fi
-    
-    if [ "${REDIS_PASSWORD:-}" = "redis_secret" ]; then
-        log_warn "⚠️  REDIS_PASSWORD is using default value!"
         warnings=$((warnings + 1))
     fi
     
@@ -282,7 +250,6 @@ main() {
     
     # Wait for dependencies
     wait_for_postgres
-    wait_for_redis
     
     # Run migrations
     run_migrations

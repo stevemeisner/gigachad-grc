@@ -62,28 +62,6 @@ services:
       retries: 5
 
   # ===========================================
-  # Cache & Message Queue - Redis (Official Docker Image)
-  # ===========================================
-  redis:
-    image: redis:7-alpine
-    container_name: grc-redis
-    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis_secret}
-    ports:
-      - "6380:6379"  # Using 6380 externally to avoid conflicts
-    volumes:
-      - redis_data:/data
-    networks:
-      - grc-network
-    restart: unless-stopped
-    security_opt:
-      - no-new-privileges:true
-    healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redis_secret}", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # ===========================================
   # Authentication - Keycloak (Official Keycloak Image)
   # ===========================================
   keycloak:
@@ -160,7 +138,6 @@ services:
       NODE_ENV: development
       PORT: 3001
       DATABASE_URL: postgresql://${POSTGRES_USER:-grc}:${POSTGRES_PASSWORD:-grc_secret}@postgres:5432/${POSTGRES_DB:-gigachad_grc}
-      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000
       MINIO_USE_SSL: ${MINIO_USE_SSL:-false}
@@ -182,8 +159,6 @@ services:
       - ./deploy:/app/deploy:ro
     depends_on:
       postgres:
-        condition: service_healthy
-      redis:
         condition: service_healthy
       keycloak:
         condition: service_started
@@ -212,7 +187,6 @@ services:
       NODE_ENV: development
       PORT: 3002
       DATABASE_URL: postgresql://${POSTGRES_USER:-grc}:${POSTGRES_PASSWORD:-grc_secret}@postgres:5432/${POSTGRES_DB:-gigachad_grc}
-      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000
       MINIO_USE_SSL: false
@@ -224,8 +198,6 @@ services:
       - "3002:3002"
     depends_on:
       postgres:
-        condition: service_healthy
-      redis:
         condition: service_healthy
       keycloak:
         condition: service_started
@@ -254,7 +226,6 @@ services:
       NODE_ENV: development
       PORT: 3004
       DATABASE_URL: postgresql://${POSTGRES_USER:-grc}:${POSTGRES_PASSWORD:-grc_secret}@postgres:5432/${POSTGRES_DB:-gigachad_grc}
-      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000
       MINIO_USE_SSL: false
@@ -266,8 +237,6 @@ services:
       - "3004:3004"
     depends_on:
       postgres:
-        condition: service_healthy
-      redis:
         condition: service_healthy
       keycloak:
         condition: service_started
@@ -295,7 +264,6 @@ services:
       NODE_ENV: development
       PORT: 3005
       DATABASE_URL: postgresql://${POSTGRES_USER:-grc}:${POSTGRES_PASSWORD:-grc_secret}@postgres:5432/${POSTGRES_DB:-gigachad_grc}
-      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000
       MINIO_USE_SSL: false
@@ -307,8 +275,6 @@ services:
       - "3005:3005"
     depends_on:
       postgres:
-        condition: service_healthy
-      redis:
         condition: service_healthy
       keycloak:
         condition: service_started
@@ -339,7 +305,6 @@ services:
       NODE_ENV: development
       PORT: 3006
       DATABASE_URL: postgresql://${POSTGRES_USER:-grc}:${POSTGRES_PASSWORD:-grc_secret}@postgres:5432/${POSTGRES_DB:-gigachad_grc}
-      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000
       MINIO_USE_SSL: false
@@ -351,8 +316,6 @@ services:
       - "3006:3006"
     depends_on:
       postgres:
-        condition: service_healthy
-      redis:
         condition: service_healthy
       keycloak:
         condition: service_started
@@ -382,7 +345,6 @@ services:
       NODE_ENV: development
       PORT: 3007
       DATABASE_URL: postgresql://${POSTGRES_USER:-grc}:${POSTGRES_PASSWORD:-grc_secret}@postgres:5432/${POSTGRES_DB:-gigachad_grc}
-      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000
       MINIO_USE_SSL: false
@@ -394,8 +356,6 @@ services:
       - "3007:3007"
     depends_on:
       postgres:
-        condition: service_healthy
-      redis:
         condition: service_healthy
       keycloak:
         condition: service_started
@@ -485,7 +445,6 @@ networks:
 
 volumes:
   postgres_data:
-  redis_data:
   minio_data:
   prometheus_data:
   grafana_data:

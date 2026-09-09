@@ -65,17 +65,6 @@ variable "database_password" {
   sensitive   = true
 }
 
-variable "redis_host" {
-  description = "Redis hostname"
-  type        = string
-}
-
-variable "redis_port" {
-  description = "Redis port"
-  type        = number
-  default     = 6379
-}
-
 variable "s3_bucket_name" {
   description = "S3 bucket name for file storage"
   type        = string

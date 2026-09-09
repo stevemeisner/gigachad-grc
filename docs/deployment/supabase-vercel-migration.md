@@ -21,7 +21,6 @@ This guide covers migrating GigaChad GRC from the Docker-based microservices arc
 ### Previous Architecture (Docker)
 - 6 NestJS microservices (controls, frameworks, policies, tprm, trust, audit)
 - PostgreSQL database
-- Redis for caching
 - MinIO for file storage
 - Keycloak for authentication
 - Traefik for API gateway
@@ -31,7 +30,6 @@ This guide covers migrating GigaChad GRC from the Docker-based microservices arc
 - Vercel: React frontend + Serverless API functions
 - Supabase: PostgreSQL database + File storage
 - Okta: Direct OIDC authentication (no middleware)
-- No Redis required (Vercel Edge caching available if needed)
 
 ### Cost Comparison
 

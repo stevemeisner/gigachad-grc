@@ -47,11 +47,6 @@ scrape_configs:
         regex: '([^:]+):\d+'
         replacement: '${1}'
 
-  # Redis
-  - job_name: 'redis'
-    static_configs:
-      - targets: ['redis:6379']
-
   # GRC Services - Health endpoints
   - job_name: 'grc-controls'
     metrics_path: /health

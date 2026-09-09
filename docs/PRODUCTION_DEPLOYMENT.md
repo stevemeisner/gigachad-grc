@@ -29,7 +29,6 @@ This comprehensive guide covers everything you need to deploy GigaChad GRC to a 
 | Docker Compose | 2.20+ | Multi-container orchestration |
 | Node.js | 18.0+ | Frontend build |
 | PostgreSQL | 15+ | Primary database |
-| Redis | 7+ | Caching & sessions |
 
 ### System Requirements
 
@@ -70,12 +69,11 @@ This comprehensive guide covers everything you need to deploy GigaChad GRC to a 
 │  (Nginx/Static) │  │   (NestJS x6)   │  │  (Auth Server)  │
 └─────────────────┘  └─────────────────┘  └─────────────────┘
                               │
-                    ┌─────────┴─────────┐
-                    ▼                   ▼
-          ┌─────────────────┐  ┌─────────────────┐
-          │   PostgreSQL    │  │      Redis      │
-          │   (Database)    │  │    (Cache)      │
-          └─────────────────┘  └─────────────────┘
+                              ▼
+                    ┌─────────────────┐
+                    │   PostgreSQL    │
+                    │   (Database)    │
+                    └─────────────────┘
 ```
 
 ### Microservices
@@ -112,12 +110,6 @@ DATABASE_URL=postgresql://grc_user:YOUR_SECURE_PASSWORD@postgres:5432/gigachad_g
 POSTGRES_USER=grc_user
 POSTGRES_PASSWORD=YOUR_SECURE_PASSWORD
 POSTGRES_DB=gigachad_grc
-
-# ===========================================
-# Redis Configuration
-# ===========================================
-REDIS_URL=redis://redis:6379
-REDIS_PASSWORD=YOUR_REDIS_PASSWORD
 
 # ===========================================
 # Authentication (Keycloak)
@@ -310,21 +302,6 @@ services:
       timeout: 5s
       retries: 5
 
-  redis:
-    image: redis:7-alpine
-    container_name: grc-redis
-    command: redis-server --requirepass ${REDIS_PASSWORD}
-    volumes:
-      - redis_data:/data
-    networks:
-      - grc-network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   controls:
     build:
       context: ./services/controls
@@ -333,11 +310,8 @@ services:
     environment:
       - NODE_ENV=production
       - DATABASE_URL=${DATABASE_URL}
-      - REDIS_URL=${REDIS_URL}
     depends_on:
       postgres:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     networks:
       - grc-network
@@ -373,7 +347,6 @@ networks:
 
 volumes:
   postgres_data:
-  redis_data:
 ```
 
 ### Deployment Commands
@@ -692,9 +665,6 @@ LIMIT 10;"
 
 # Check memory usage
 docker stats
-
-# Check Redis
-docker exec grc-redis redis-cli -a $REDIS_PASSWORD INFO memory
 ```
 
 ### Log Locations

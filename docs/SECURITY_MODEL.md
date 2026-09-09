@@ -49,7 +49,7 @@ The platform implements multiple layers of security:
 - **Public Zone**: CDN, Load Balancer
 - **DMZ**: API Gateway, Authentication Services
 - **Application Zone**: Backend Services (Controls, Frameworks, etc.)
-- **Data Zone**: PostgreSQL, Redis, MinIO (Object Storage)
+- **Data Zone**: PostgreSQL, MinIO (Object Storage)
 
 ---
 

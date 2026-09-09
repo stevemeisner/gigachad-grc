@@ -7,7 +7,6 @@ This guide explains how to configure SSL/TLS for all GigaChad GRC services in pr
 In production, all connections should be encrypted:
 - **Database connections** (PostgreSQL)
 - **Object storage connections** (MinIO/S3)
-- **Redis connections** (Cache/Queue)
 - **Frontend** (HTTPS via Traefik)
 - **API endpoints** (HTTPS via Traefik)
 
@@ -84,36 +83,6 @@ AWS S3 uses SSL by default. No additional configuration needed.
 
 Azure Blob Storage uses SSL by default. Ensure your connection string starts with `https://`.
 
-## Redis SSL Configuration
-
-### Redis with TLS
-
-1. Update Redis URL:
-
-```bash
-# Without SSL
-REDIS_URL=redis://:password@host:6379
-
-# With SSL
-REDIS_URL=rediss://:password@host:6379
-```
-
-Note the `rediss://` protocol (double 's').
-
-2. For custom certificates, configure in Docker:
-
-```yaml
-# docker-compose.prod.yml
-redis:
-  command: >
-    redis-server 
-    --tls-port 6379 
-    --port 0 
-    --tls-cert-file /tls/redis.crt 
-    --tls-key-file /tls/redis.key 
-    --tls-ca-cert-file /tls/ca.crt
-```
-
 ## Traefik SSL Configuration
 
 ### Automatic SSL with Let's Encrypt
@@ -184,7 +153,6 @@ curl -vvv https://storage.yourdomain.com/minio/health/live
 
 - [ ] DATABASE_URL includes `?sslmode=require` or stricter
 - [ ] MINIO_USE_SSL=true
-- [ ] REDIS_URL uses `rediss://` protocol
 - [ ] Traefik has valid SSL certificates
 - [ ] All internal service-to-service communication uses internal network
 - [ ] Frontend served over HTTPS only
@@ -216,6 +184,5 @@ Your client is trying to connect without SSL. Ensure:
 
 - [PostgreSQL SSL Support](https://www.postgresql.org/docs/current/libpq-ssl.html)
 - [MinIO TLS Configuration](https://min.io/docs/minio/linux/operations/network-encryption.html)
-- [Redis TLS Support](https://redis.io/docs/management/security/encryption/)
 - [Traefik HTTPS & TLS](https://doc.traefik.io/traefik/https/overview/)
 

@@ -306,7 +306,6 @@ restore_volumes() {
     # List of volumes to restore
     local volumes=(
         "gigachad-grc_postgres_data"
-        "gigachad-grc_redis_data"
         "gigachad-grc_minio_data"
         "gigachad-grc_keycloak_data"
         "gigachad-grc_traefik_letsencrypt"
@@ -468,35 +467,6 @@ restore_minio() {
     log_success "MinIO data restoration completed"
 }
 
-# Restore Redis data
-restore_redis() {
-    log_step "Restoring Redis data..."
-
-    # Check if Redis backup exists
-    if [ ! -f "$RESTORE_DIR/redis_backup.rdb" ]; then
-        log_warning "Redis backup not found, skipping"
-        return 0
-    fi
-
-    # Start Redis service
-    log_info "Starting Redis service..."
-    docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d redis \
-        || error_exit "Failed to start Redis service"
-
-    # Wait for Redis to be ready
-    sleep 5
-
-    # Copy Redis dump file
-    log_info "Copying Redis dump file..."
-    docker cp "$RESTORE_DIR/redis_backup.rdb" grc-redis:/data/dump.rdb \
-        || error_exit "Failed to copy Redis dump"
-
-    # Restart Redis to load data
-    docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" restart redis
-
-    log_success "Redis data restoration completed"
-}
-
 # Start all services
 start_services() {
     log_step "Starting all GigaChad GRC services..."
@@ -529,14 +499,6 @@ verify_restoration() {
         log_success "Database is accessible"
     else
         log_warning "Database may not be accessible"
-    fi
-
-    # Check Redis connectivity
-    if docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec -T redis \
-        redis-cli -a "${REDIS_PASSWORD}" --no-auth-warning ping >/dev/null 2>&1; then
-        log_success "Redis is accessible"
-    else
-        log_warning "Redis may not be accessible"
     fi
 
     log_success "Verification completed"
@@ -575,7 +537,6 @@ main() {
     restore_volumes
     restore_database
     restore_minio
-    restore_redis
     start_services
     verify_restoration
 

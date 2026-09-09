@@ -17,7 +17,7 @@
 # WHAT THIS SCRIPT DOES:
 #   1. Checks prerequisites and that every required host port is free
 #   2. Creates .env from env.development if missing
-#   3. Starts infrastructure (PostgreSQL, Redis, Keycloak, MinIO)
+#   3. Starts infrastructure (PostgreSQL, Keycloak, MinIO)
 #   4. Creates the database schema with `prisma db push`
 #   5. Inserts the development organization/user rows
 #   6. Builds the shared library and the six services
@@ -50,9 +50,9 @@ SERVICE_NAMES=(controls frameworks policies tprm trust audit)
 SERVICE_PORTS=(3001      3002       3004     3005 3006  3007)
 
 FRONTEND_PORT=3000
-INFRA_SERVICES=(postgres redis keycloak minio)
+INFRA_SERVICES=(postgres keycloak minio)
 # Host ports published by the infrastructure containers.
-INFRA_PORTS=(5433 6380 8080 9000 9001)
+INFRA_PORTS=(5433 8080 9000 9001)
 
 SKIP_BUILD=false
 RUN_SEED=true
@@ -184,7 +184,7 @@ set +a
 ok "Environment loaded (NODE_ENV=${NODE_ENV:-development})"
 
 # ----------------------------------------------------------------------------
-step 3 "Starting infrastructure (PostgreSQL, Redis, Keycloak, MinIO)..."
+step 3 "Starting infrastructure (PostgreSQL, Keycloak, MinIO)..."
 # ----------------------------------------------------------------------------
 
 # Keycloak is not optional even though the demo uses Dev Login: the SPA runs

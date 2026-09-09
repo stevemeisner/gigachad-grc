@@ -400,18 +400,6 @@ resource "aws_ecs_task_definition" "controls" {
           value = "postgresql://${var.database_username}:${var.database_password}@${var.database_host}:${var.database_port}/${var.database_name}"
         },
         {
-          name  = "REDIS_HOST"
-          value = var.redis_host
-        },
-        {
-          name  = "REDIS_PORT"
-          value = tostring(var.redis_port)
-        },
-        {
-          name  = "REDIS_URL"
-          value = "redis://${var.redis_host}:${var.redis_port}"
-        },
-        {
           name  = "S3_BUCKET"
           value = var.s3_bucket_name
         },
@@ -517,18 +505,6 @@ resource "aws_ecs_task_definition" "frameworks" {
         {
           name  = "DATABASE_URL"
           value = "postgresql://${var.database_username}:${var.database_password}@${var.database_host}:${var.database_port}/${var.database_name}"
-        },
-        {
-          name  = "REDIS_HOST"
-          value = var.redis_host
-        },
-        {
-          name  = "REDIS_PORT"
-          value = tostring(var.redis_port)
-        },
-        {
-          name  = "REDIS_URL"
-          value = "redis://${var.redis_host}:${var.redis_port}"
         },
         {
           name  = "S3_BUCKET"
@@ -642,18 +618,6 @@ resource "aws_ecs_task_definition" "policies" {
           value = "postgresql://${var.database_username}:${var.database_password}@${var.database_host}:${var.database_port}/${var.database_name}"
         },
         {
-          name  = "REDIS_HOST"
-          value = var.redis_host
-        },
-        {
-          name  = "REDIS_PORT"
-          value = tostring(var.redis_port)
-        },
-        {
-          name  = "REDIS_URL"
-          value = "redis://${var.redis_host}:${var.redis_port}"
-        },
-        {
           name  = "S3_BUCKET"
           value = var.s3_bucket_name
         },
@@ -759,18 +723,6 @@ resource "aws_ecs_task_definition" "tprm" {
         {
           name  = "DATABASE_URL"
           value = "postgresql://${var.database_username}:${var.database_password}@${var.database_host}:${var.database_port}/${var.database_name}"
-        },
-        {
-          name  = "REDIS_HOST"
-          value = var.redis_host
-        },
-        {
-          name  = "REDIS_PORT"
-          value = tostring(var.redis_port)
-        },
-        {
-          name  = "REDIS_URL"
-          value = "redis://${var.redis_host}:${var.redis_port}"
         },
         {
           name  = "S3_BUCKET"
@@ -884,18 +836,6 @@ resource "aws_ecs_task_definition" "trust" {
           value = "postgresql://${var.database_username}:${var.database_password}@${var.database_host}:${var.database_port}/${var.database_name}"
         },
         {
-          name  = "REDIS_HOST"
-          value = var.redis_host
-        },
-        {
-          name  = "REDIS_PORT"
-          value = tostring(var.redis_port)
-        },
-        {
-          name  = "REDIS_URL"
-          value = "redis://${var.redis_host}:${var.redis_port}"
-        },
-        {
           name  = "S3_BUCKET"
           value = var.s3_bucket_name
         },
@@ -1001,18 +941,6 @@ resource "aws_ecs_task_definition" "audit" {
         {
           name  = "DATABASE_URL"
           value = "postgresql://${var.database_username}:${var.database_password}@${var.database_host}:${var.database_port}/${var.database_name}"
-        },
-        {
-          name  = "REDIS_HOST"
-          value = var.redis_host
-        },
-        {
-          name  = "REDIS_PORT"
-          value = tostring(var.redis_port)
-        },
-        {
-          name  = "REDIS_URL"
-          value = "redis://${var.redis_host}:${var.redis_port}"
         },
         {
           name  = "S3_BUCKET"

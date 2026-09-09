@@ -131,25 +131,6 @@ variable "rds_multi_az" {
   default     = true
 }
 
-# Redis Configuration
-variable "redis_node_type" {
-  description = "ElastiCache Redis node type"
-  type        = string
-  default     = "cache.t3.medium"
-}
-
-variable "redis_num_cache_nodes" {
-  description = "Number of cache nodes"
-  type        = number
-  default     = 1
-}
-
-variable "redis_engine_version" {
-  description = "Redis engine version"
-  type        = string
-  default     = "7.0"
-}
-
 # S3 Configuration
 variable "s3_enable_versioning" {
   description = "Enable versioning on S3 bucket"

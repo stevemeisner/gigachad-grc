@@ -36,7 +36,6 @@ import { CustomThrottlerGuard } from './auth/throttler.guard';
 import { CorrelationIdMiddleware } from './common/correlation-id.middleware';
 import { 
   StorageModule, 
-  EventsModule,
   CacheModule,
   HealthModule,
 } from '@gigachad-grc/shared';
@@ -68,7 +67,6 @@ import {
     PrometheusModule.register(),
     PrismaModule,
     StorageModule.forRoot(),
-    EventsModule,
     CacheModule.forRoot({
       defaultTtl: 300, // 5 minutes
       maxSize: 1000,

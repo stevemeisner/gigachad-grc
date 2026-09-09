@@ -79,9 +79,8 @@ docker-compose exec controls npm run prisma:migrate
 
 ### Required Services
 1. **PostgreSQL** - Primary database
-2. **Redis** - Caching and sessions
-3. **MinIO/S3** - File storage
-4. **Keycloak** - Authentication and SSO
+2. **MinIO/S3** - File storage
+3. **Keycloak** - Authentication and SSO
 
 ### Application Services
 1. **Controls Service** (Port 3001)
@@ -113,7 +112,6 @@ docker-compose exec controls npm run prisma:migrate
 **AWS Cost**: ~$500-800/month
 **Specs**:
 - RDS db.t3.large
-- ElastiCache cache.t3.medium
 - 2 ECS tasks per service
 
 ### Large (Enterprise)
@@ -122,7 +120,6 @@ docker-compose exec controls npm run prisma:migrate
 **AWS Cost**: ~$1500-2500/month
 **Specs**:
 - RDS db.r6g.xlarge with read replicas
-- ElastiCache cluster
 - Auto-scaling ECS services
 - CloudFront CDN
 

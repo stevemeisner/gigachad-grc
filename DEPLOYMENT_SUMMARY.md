@@ -37,7 +37,6 @@ Complete infrastructure-as-code for deploying to AWS with high availability, aut
 - ALB security group (ports 80, 443)
 - ECS security group (all ports from ALB)
 - RDS security group (port 5432 from ECS)
-- Redis security group (port 6379 from ECS)
 - Least-privilege access rules
 - **Files**: main.tf, variables.tf, outputs.tf
 
@@ -58,15 +57,9 @@ Complete infrastructure-as-code for deploying to AWS with high availability, aut
 - Parameter group with comprehensive logging
 - **Files**: main.tf (286 lines), variables.tf, outputs.tf
 
-**5. Redis Module** (`terraform/modules/redis/`)
-- ElastiCache Redis with encryption
-- Auth token authentication
-- SNS notifications for events
-- CloudWatch alarms (CPU, memory, evictions)
-- Parameter group with LRU eviction
 - **Files**: main.tf (268 lines), variables.tf, outputs.tf
 
-**6. S3 Module** (`terraform/modules/s3/`)
+**5. S3 Module** (`terraform/modules/s3/`)
 - Encrypted S3 bucket with versioning
 - Lifecycle rules for cost optimization
 - Block all public access
@@ -74,7 +67,7 @@ Complete infrastructure-as-code for deploying to AWS with high availability, aut
 - KMS encryption with auto-rotation
 - **Files**: main.tf (302 lines), variables.tf, outputs.tf
 
-**7. ECS Module** (`terraform/modules/ecs/`) ⭐ Most Complex
+**6. ECS Module** (`terraform/modules/ecs/`) ⭐ Most Complex
 - ECS Cluster with Container Insights
 - IAM roles for task execution and S3/CloudWatch access
 - **7 Microservices**: controls, frameworks, policies, tprm, trust, audit, frontend
@@ -155,7 +148,6 @@ Production-hardened Docker Compose for simple, single-server deployments with en
 - `deploy/backup.sh` (492 lines, executable) - Automated backup script
   - PostgreSQL database dumps
   - MinIO/S3 file backup
-  - Redis data backup
   - Configuration backup
   - 30-day retention with rotation
   - S3 upload support
@@ -263,7 +255,6 @@ Deployment time: **5-10 minutes**
 
 **Small** (Development/Testing)
 - RDS db.t3.medium: ~$50/mo
-- ElastiCache cache.t3.small: ~$15/mo
 - ECS Fargate (7 tasks × 1): ~$50/mo
 - ALB: ~$20/mo
 - NAT Gateway: ~$35/mo
@@ -272,7 +263,6 @@ Deployment time: **5-10 minutes**
 
 **Medium** (Production)
 - RDS db.t3.large (Multi-AZ): ~$180/mo
-- ElastiCache cache.t3.medium: ~$50/mo
 - ECS Fargate (7 tasks × 2): ~$150/mo
 - ALB: ~$30/mo
 - NAT Gateways (2): ~$70/mo
@@ -281,7 +271,6 @@ Deployment time: **5-10 minutes**
 
 **Large** (Enterprise)
 - RDS db.r6g.xlarge (Multi-AZ): ~$600/mo
-- ElastiCache cluster: ~$300/mo
 - ECS Fargate (7 tasks × 4+): ~$500/mo
 - ALB: ~$50/mo
 - NAT Gateways (2): ~$70/mo
@@ -341,7 +330,7 @@ Deployment time: **5-10 minutes**
 
 ## 🔐 Security Highlights
 
-- All data encrypted at rest (RDS, Redis, S3)
+- All data encrypted at rest (RDS, S3)
 - All data encrypted in transit (TLS 1.3)
 - Least-privilege IAM roles
 - Network isolation (private subnets)
@@ -371,7 +360,6 @@ gigachad-grc/
 │       ├── security-groups/
 │       ├── alb/
 │       ├── rds/
-│       ├── redis/
 │       ├── s3/
 │       └── ecs/
 ├── docker-compose.prod.yml           # Production Docker Compose

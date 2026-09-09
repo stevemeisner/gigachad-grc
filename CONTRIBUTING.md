@@ -57,8 +57,8 @@ git remote add upstream https://github.com/ORIGINAL_ORG/gigachad-grc.git
 ### 1. Start Infrastructure Services
 
 ```bash
-# Start PostgreSQL, Redis, Keycloak, and MinIO
-docker-compose up -d postgres redis keycloak minio
+# Start PostgreSQL, Keycloak, and MinIO
+docker-compose up -d postgres keycloak minio
 ```
 
 Wait for services to be healthy:

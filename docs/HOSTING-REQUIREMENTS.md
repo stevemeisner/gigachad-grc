@@ -50,7 +50,7 @@ For a small internal deployment (10–50 people).
 | **PostgreSQL 16** | **Required** | The only datastore. One database for the app, a second for Keycloak if self-hosted. Managed (Cloud SQL / RDS) or the container in the compose file. |
 | **Identity provider** | **Required** | See [Identity provider options](#identity-provider-options). |
 | **Object storage (S3 etc.)** | **Optional** | Only for evidence file uploads. `STORAGE_TYPE=local` writes to disk instead and needs a persistent volume. Start local; add S3 when you need durability or multiple app instances. |
-| **Redis** | **Not needed** | Verified unused: `EVENT_BUS` is injected nowhere, `publish()` has no call sites, `ioredis` is imported in exactly one file, and rate limiting is in-memory. Do not provision it. |
+| **Redis** | **Not needed** | Removed from the codebase. It was never wired up: `EVENT_BUS` was injected nowhere, `publish()` had no call sites, and the BullMQ queue was imported by no module. Caching is in-process and rate limiting is in-memory. Do not provision it. |
 | **SMTP / email** | **Optional** | Nothing in the demo path sends mail. Password-reset links will silently fail without it. |
 | **OpenAI / Anthropic API key** | **Optional** | Only the AI assist features need one. Everything else works without. |
 

@@ -97,7 +97,7 @@ cd gigachad-grc
 1. ✅ Verifies Docker is running and that every required host port is free
 2. ✅ Creates `.env` from `env.development` if missing (and refuses a `.env`
    carrying `NODE_ENV=production`)
-3. ✅ Starts infrastructure (PostgreSQL, Redis, Keycloak, MinIO)
+3. ✅ Starts infrastructure (PostgreSQL, Keycloak, MinIO)
 4. ✅ Waits for the database, then creates the schema with `prisma db push`
 5. ✅ Applies `database/dev-bootstrap.sql` (the organization and user
    `DevAuthGuard` hard-codes)
@@ -217,8 +217,8 @@ cd frontend && npm install && cd ..
 ### Step 2: Start Infrastructure
 
 ```bash
-# Start database, cache, identity provider and object storage
-docker compose up -d postgres redis keycloak minio
+# Start database, identity provider and object storage
+docker compose up -d postgres keycloak minio
 
 # Wait for services to be healthy
 docker compose ps

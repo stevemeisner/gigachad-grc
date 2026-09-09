@@ -33,7 +33,6 @@ Phase 1 of the Stability & Usability audit focused on infrastructure health, bui
 | Frontend (Vite dev) | 3000 | ✅ Running |
 | Backend (Controls API) | 3001 | ✅ Running |
 | PostgreSQL | 5433 | ✅ Healthy |
-| Redis | 6380 | ✅ Healthy |
 | MinIO | 9000-9001 | ✅ Healthy |
 | Keycloak | 8080 | ✅ Running |
 | Traefik | 80, 443, 8090 | ✅ Running |

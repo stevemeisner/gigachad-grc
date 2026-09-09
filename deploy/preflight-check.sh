@@ -118,7 +118,6 @@ if [ -f "$ENV_FILE" ]; then
         "POSTGRES_USER"
         "POSTGRES_PASSWORD"
         "POSTGRES_DB"
-        "REDIS_PASSWORD"
         "KEYCLOAK_ADMIN"
         "KEYCLOAK_ADMIN_PASSWORD"
         "JWT_SECRET"

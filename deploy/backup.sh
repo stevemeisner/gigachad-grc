@@ -196,27 +196,6 @@ backup_minio() {
     log_success "MinIO backup completed"
 }
 
-# Backup Redis data (optional)
-backup_redis() {
-    log_info "Starting Redis backup..."
-
-    local redis_backup_file="${BACKUP_DIR}/redis_backup.rdb"
-
-    # Trigger Redis BGSAVE
-    docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec -T redis \
-        redis-cli -a "$REDIS_PASSWORD" --no-auth-warning BGSAVE \
-        || log_warning "Failed to trigger Redis BGSAVE"
-
-    # Wait for BGSAVE to complete
-    sleep 5
-
-    # Copy Redis dump file
-    docker cp grc-redis:/data/dump.rdb "$redis_backup_file" \
-        || log_warning "Failed to backup Redis data"
-
-    log_success "Redis backup completed"
-}
-
 # Backup configuration files
 backup_configurations() {
     log_info "Starting configuration files backup..."
@@ -253,7 +232,6 @@ backup_volumes() {
     # List of volumes to backup
     local volumes=(
         "gigachad-grc_postgres_data"
-        "gigachad-grc_redis_data"
         "gigachad-grc_minio_data"
         "gigachad-grc_keycloak_data"
         "gigachad-grc_traefik_letsencrypt"
@@ -311,7 +289,6 @@ create_manifest() {
     "database_sql": "postgres_backup.sql.gz",
     "database_dump": "postgres_backup.dump",
     "minio": "minio_backup.tar.gz",
-    "redis": "redis_backup.rdb",
     "configs": "configs/",
     "volumes": "volumes/"
   },
@@ -455,7 +432,6 @@ main() {
     load_environment
     backup_database
     backup_minio
-    backup_redis
     backup_configurations
     backup_volumes
     create_manifest

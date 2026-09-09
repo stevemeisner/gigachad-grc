@@ -95,7 +95,6 @@ docker-compose exec frameworks npm run seed
 ```bash
 # Generate strong passwords
 POSTGRES_PASSWORD=$(openssl rand -base64 32)
-REDIS_PASSWORD=$(openssl rand -base64 32)
 KEYCLOAK_ADMIN_PASSWORD=$(openssl rand -base64 32)
 MINIO_ROOT_PASSWORD=$(openssl rand -base64 32)
 ENCRYPTION_KEY=$(openssl rand -base64 32)
@@ -149,7 +148,6 @@ services:
 volumes:
   traefik_certs:
   postgres_data:
-  redis_data:
   minio_data:
 
 networks:
@@ -224,10 +222,6 @@ database:
   port: 5432
   name: gigachad_grc
 
-redis:
-  host: redis.default.svc.cluster.local
-  port: 6379
-
 keycloak:
   url: https://auth.yourdomain.com
   realm: gigachad-grc
@@ -271,7 +265,6 @@ kubectl create namespace gigachad-grc
 # Create secrets
 kubectl create secret generic grc-secrets \
   --from-literal=POSTGRES_PASSWORD=your-password \
-  --from-literal=REDIS_PASSWORD=your-password \
   -n gigachad-grc
 
 # Install with Helm
@@ -319,7 +312,6 @@ CMD ["node", "dist/main"]
 3. Configure environment:
 ```env
 DATABASE_URL=postgresql://user:pass@host:5432/db
-REDIS_URL=redis://host:6379
 KEYCLOAK_URL=https://auth.yourdomain.com
 STORAGE_TYPE=minio
 MINIO_ENDPOINT=storage.yourdomain.com

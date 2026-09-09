@@ -110,39 +110,6 @@ groups:
           description: "Deadlocks are occurring in PostgreSQL"
 
   # =============================================================================
-  # Redis Alerts
-  # =============================================================================
-  - name: redis
-    rules:
-      - alert: RedisDown
-        expr: redis_up == 0
-        for: 1m
-        labels:
-          severity: critical
-        annotations:
-          summary: "Redis is down"
-          description: "Redis has been down for more than 1 minute."
-
-      - alert: RedisHighMemory
-        expr: |
-          redis_memory_used_bytes / redis_memory_max_bytes > 0.9
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "Redis high memory usage"
-          description: "Redis memory usage is at {{ printf \"%.0f\" $value }}%"
-
-      - alert: RedisHighLatency
-        expr: redis_commands_duration_seconds_sum / redis_commands_total > 0.01
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "Redis high latency"
-          description: "Redis command latency is high"
-
-  # =============================================================================
   # Infrastructure Alerts
   # =============================================================================
   - name: infrastructure

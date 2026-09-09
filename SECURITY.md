@@ -10,14 +10,11 @@ The following default credentials are included for development purposes **ONLY**
    - Username: `grc`
    - Password: `grc_secret` ← CHANGE THIS
 
-2. **Redis Cache**
-   - Password: `redis_secret` ← CHANGE THIS
-
-3. **Keycloak Admin**
+2. **Keycloak Admin**
    - Username: `admin`
    - Password: `admin` ← CHANGE THIS
 
-4. **MinIO Object Storage**
+3. **MinIO Object Storage**
    - Access Key: `minioadmin`
    - Secret Key: `minioadminpassword` ← CHANGE THIS
 
@@ -49,7 +46,6 @@ bash scripts/data-scrub.sh
 # Or manually:
 docker-compose down
 docker volume rm gigachad-grc_postgres_data
-docker volume rm gigachad-grc_redis_data
 docker volume rm gigachad-grc_minio_data
 
 # Start fresh

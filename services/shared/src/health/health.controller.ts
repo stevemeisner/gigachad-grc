@@ -1,6 +1,5 @@
-import { Controller, Get, Optional, Inject } from '@nestjs/common';
+import { Controller, Get } from '@nestjs/common';
 import { PrismaHealthIndicator } from './prisma.health';
-import { RedisHealthIndicator } from './redis.health';
 
 interface HealthCheckResponse {
   status: 'ok' | 'error';
@@ -11,10 +10,7 @@ interface HealthCheckResponse {
 
 @Controller('health')
 export class HealthController {
-  constructor(
-    private prisma: PrismaHealthIndicator,
-    @Optional() @Inject(RedisHealthIndicator) private redis?: RedisHealthIndicator,
-  ) {}
+  constructor(private prisma: PrismaHealthIndicator) {}
 
   /**
    * Get memory usage stats
@@ -74,25 +70,20 @@ export class HealthController {
 
   /**
    * Readiness probe - indicates the service is ready to accept traffic
-   * Checks database connectivity, Redis, and other dependencies
+   * Checks database connectivity and other dependencies
    */
   @Get('ready')
   async checkReady(): Promise<HealthCheckResponse> {
     const dbCheck = await this.prisma.isHealthy('database');
-    const redisCheck = this.redis 
-      ? await this.redis.isHealthy('redis')
-      : { redis: { status: 'up' as const, message: 'Redis not configured' } };
     const memoryCheck = this.checkMemory(
       500 * 1024 * 1024, // 500MB heap
       1024 * 1024 * 1024 // 1GB RSS
     );
 
     const dbHealthy = dbCheck.database?.status === 'up';
-    // Redis is considered healthy if status is 'up' (includes degraded state)
-    const redisHealthy = redisCheck.redis?.status === 'up';
     const memoryHealthy = memoryCheck.memory_heap.status === 'up' && 
                           memoryCheck.memory_rss.status === 'up';
-    const isHealthy = dbHealthy && redisHealthy && memoryHealthy;
+    const isHealthy = dbHealthy && memoryHealthy;
 
     const info: Record<string, any> = {};
     const error: Record<string, any> = {};
@@ -101,12 +92,6 @@ export class HealthController {
       info.database = dbCheck.database;
     } else {
       error.database = dbCheck.database;
-    }
-
-    if (redisHealthy) {
-      info.redis = redisCheck.redis;
-    } else {
-      error.redis = redisCheck.redis;
     }
 
     if (memoryCheck.memory_heap.status === 'up') {
@@ -125,7 +110,7 @@ export class HealthController {
       status: isHealthy ? 'ok' : 'error',
       info: Object.keys(info).length > 0 ? info : undefined,
       error: Object.keys(error).length > 0 ? error : undefined,
-      details: { ...dbCheck, ...redisCheck, ...memoryCheck },
+      details: { ...dbCheck, ...memoryCheck },
     };
   }
 
