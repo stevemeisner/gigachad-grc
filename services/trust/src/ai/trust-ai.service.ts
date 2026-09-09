@@ -101,7 +101,7 @@ Provide your response in the following JSON format:
 
     try {
       // Call the controls service AI endpoint
-      const response = await axios.post(`${this.controlsServiceUrl}/ai/analyze`, {
+      const response = await axios.post(`${this.controlsServiceUrl}/api/ai/analyze`, {
         content: prompt,
         analysisType: 'questionnaire_response',
         options: {
@@ -228,7 +228,7 @@ Respond in JSON format:
 }`;
 
     try {
-      const response = await axios.post(`${this.controlsServiceUrl}/ai/analyze`, {
+      const response = await axios.post(`${this.controlsServiceUrl}/api/ai/analyze`, {
         content: prompt,
         analysisType: 'categorization',
         options: { returnJson: true },
@@ -289,7 +289,7 @@ Respond in JSON format:
 }`;
 
     try {
-      const response = await axios.post(`${this.controlsServiceUrl}/ai/analyze`, {
+      const response = await axios.post(`${this.controlsServiceUrl}/api/ai/analyze`, {
         content: prompt,
         analysisType: 'answer_improvement',
         options: { returnJson: true },

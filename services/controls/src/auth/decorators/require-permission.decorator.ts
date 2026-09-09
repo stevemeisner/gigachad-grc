@@ -1,5 +1,6 @@
 import { SetMetadata, createParamDecorator, ExecutionContext } from '@nestjs/common';
 import { Resource, Action } from '../../permissions/dto/permission.dto';
+import { UserContext } from '@gigachad-grc/shared';
 
 export const PERMISSION_KEY = 'required_permission';
 
@@ -37,18 +38,17 @@ export const RequireAnyPermission = (...permissions: RequiredPermission[]) =>
   SetMetadata(PERMISSIONS_KEY, permissions);
 
 /**
- * Decorator to extract the current user from the request
- * In dev mode, this extracts user info from headers
+ * Decorator to extract the current user from the request.
+ *
+ * The value is whatever the route's auth guard placed on `request.user`.
+ * It must NOT be rebuilt from `x-user-id` / `x-organization-id` headers:
+ * those are attacker-controlled on any request that reaches the service
+ * directly, so trusting them would let a caller act as any user in any
+ * organization. DevAuthGuard happens to set them today, which is why the
+ * old header-reading version appeared to work.
  */
 export const CurrentUser = createParamDecorator(
-  (data: unknown, ctx: ExecutionContext) => {
-    const request = ctx.switchToHttp().getRequest();
-    // In dev mode, user info comes from headers set by DevAuthGuard
-    return {
-      userId: request.headers['x-user-id'] || 'dev-user-id',
-      organizationId: request.headers['x-organization-id'] || 'dev-org-id',
-      email: request.headers['x-user-email'] || 'dev@example.com',
-    };
-  },
+  (data: unknown, ctx: ExecutionContext): UserContext =>
+    ctx.switchToHttp().getRequest<{ user: UserContext }>().user,
 );
 

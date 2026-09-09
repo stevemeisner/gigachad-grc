@@ -41,7 +41,9 @@ export class PermissionGuard implements CanActivate {
     }
 
     const request = context.switchToHttp().getRequest();
-    const userId = request.headers['x-user-id'];
+    // Identity comes from the auth guard's request.user, never from the
+    // x-user-id header, which any caller can set.
+    const userId = request.user?.userId;
 
     if (!userId) {
       this.logger.warn('No user ID in request headers for permission check');
@@ -133,7 +135,7 @@ export class PermissionGuard implements CanActivate {
 export class AuthenticatedGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest();
-    const userId = request.headers['x-user-id'];
+    const userId = request.user?.userId;
 
     if (!userId) {
       throw new ForbiddenException('User not authenticated');
