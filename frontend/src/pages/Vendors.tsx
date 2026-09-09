@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { PlusIcon, BuildingOfficeIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline';
-import { vendorsApi } from '@/lib/api';
+import { vendorsApi, unwrapList } from '@/lib/api';
 import { Vendor } from '@/lib/apiTypes';
 import { Button } from '@/components/Button';
 import { SkeletonTable } from '@/components/Skeleton';
@@ -26,7 +26,7 @@ export default function Vendors() {
   
   // Filter vendors client-side for instant feedback while waiting for API
   const vendors = useMemo(() => {
-    const data = vendorsData?.data || [];
+    const data = unwrapList<Vendor>(vendorsData);
     if (!searchInput || searchInput === debouncedSearch) return data;
     // Client-side filter for immediate feedback
     const lowerSearch = searchInput.toLowerCase();
@@ -34,7 +34,7 @@ export default function Vendors() {
       v.name?.toLowerCase().includes(lowerSearch) ||
       v.category?.toLowerCase().includes(lowerSearch)
     );
-  }, [vendorsData?.data, searchInput, debouncedSearch]);
+  }, [vendorsData, searchInput, debouncedSearch]);
 
   if (loading) {
     return (

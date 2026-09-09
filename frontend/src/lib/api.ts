@@ -219,6 +219,25 @@ export const api = axios.create({
   timeout: 30000,
 });
 
+/**
+ * Normalise a list response body into a plain array.
+ *
+ * The services are not consistent about envelopes: the controls and policies
+ * services answer with `{ data, meta }`, while the frameworks, TPRM, trust and
+ * audit services answer with a bare array. Reading `.data` off a bare array
+ * yields `undefined`, which silently renders an empty page instead of failing,
+ * so callers should funnel list payloads through this helper.
+ */
+export function unwrapList<T>(payload: unknown): T[] {
+  // Element type is not knowable at runtime; the array-ness is checked, and
+  // the generic only names what the caller already expects.
+  if (Array.isArray(payload)) return payload as T[];
+  if (payload && typeof payload === 'object' && 'data' in payload && Array.isArray(payload.data)) {
+    return payload.data as T[];
+  }
+  return [];
+}
+
 // Request interceptor to add auth token and user ID
 api.interceptors.request.use((config) => {
   // Skip auth for health checks
@@ -670,26 +689,31 @@ export const tasksApi = {
   delete: (id: string) => api.delete(`/api/tasks/${id}`),
 };
 
+// Vendor assessments are served by the TPRM service. The Vite dev proxy maps
+// /api/vendor-assessments -> tprm:3005 (rewritten to its /assessments routes),
+// while the shorter /api/assessments prefix belongs to the FRAMEWORKS service
+// and returns framework assessments. These endpoints return VendorAssessment,
+// so they must use the vendor-assessments prefix.
 export const assessmentsApi = {
   list: (frameworkId?: string): Promise<AxiosResponse<VendorAssessment[]>> => 
-    api.get('/api/assessments', { params: { frameworkId } }),
+    api.get('/api/vendor-assessments', { params: { frameworkId } }),
   get: (id: string): Promise<AxiosResponse<VendorAssessment>> => 
-    api.get(`/api/assessments/${id}`),
+    api.get(`/api/vendor-assessments/${id}`),
   create: (data: CreateVendorAssessmentData | Record<string, unknown>): Promise<AxiosResponse<VendorAssessment>> => 
-    api.post('/api/assessments', data),
+    api.post('/api/vendor-assessments', data),
   update: (id: string, data: UpdateVendorAssessmentData | Record<string, unknown>): Promise<AxiosResponse<VendorAssessment>> => 
-    api.patch(`/api/assessments/${id}`, data),
+    api.patch(`/api/vendor-assessments/${id}`, data),
   delete: (id: string): Promise<AxiosResponse<void>> => 
-    api.delete(`/api/assessments/${id}`),
+    api.delete(`/api/vendor-assessments/${id}`),
   updateRequirementStatus: (id: string, requirementId: string, data: AssessmentRequirementUpdate) =>
-    api.put(`/api/assessments/${id}/requirements/${requirementId}`, data),
-  getGaps: (id: string) => api.get(`/api/assessments/${id}/gaps`),
-  createGap: (id: string, data: CreateGapData) => api.post(`/api/assessments/${id}/gaps`, data),
-  generateGaps: (id: string) => api.post(`/api/assessments/${id}/gaps/generate`),
-  createRemediation: (id: string, data: CreateRemediationData) => api.post(`/api/assessments/${id}/remediation`, data),
+    api.put(`/api/vendor-assessments/${id}/requirements/${requirementId}`, data),
+  getGaps: (id: string) => api.get(`/api/vendor-assessments/${id}/gaps`),
+  createGap: (id: string, data: CreateGapData) => api.post(`/api/vendor-assessments/${id}/gaps`, data),
+  generateGaps: (id: string) => api.post(`/api/vendor-assessments/${id}/gaps/generate`),
+  createRemediation: (id: string, data: CreateRemediationData) => api.post(`/api/vendor-assessments/${id}/remediation`, data),
   updateRemediation: (id: string, taskId: string, data: UpdateRemediationData) =>
-    api.put(`/api/assessments/${id}/remediation/${taskId}`, data),
-  complete: (id: string) => api.post(`/api/assessments/${id}/complete`),
+    api.put(`/api/vendor-assessments/${id}/remediation/${taskId}`, data),
+  complete: (id: string) => api.post(`/api/vendor-assessments/${id}/complete`),
 };
 
 export const mappingsApi = {

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeftIcon, TrashIcon, PencilIcon } from '@heroicons/react/24/outline';
-import { assessmentsApi, vendorsApi } from '../lib/api';
+import { assessmentsApi, vendorsApi, unwrapList } from '../lib/api';
 import { VendorAssessment, Vendor } from '../lib/apiTypes';
 
 interface AssessmentFormProps {
@@ -34,7 +34,7 @@ function AssessmentForm({ assessment, onSave, onCancel }: AssessmentFormProps) {
   const fetchVendors = async () => {
     try {
       const response = await vendorsApi.list();
-      setVendors(response.data?.data || []);
+      setVendors(unwrapList<Vendor>(response.data));
     } catch (error) {
       console.error('Error fetching vendors:', error);
     }
