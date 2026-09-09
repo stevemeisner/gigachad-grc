@@ -4,10 +4,9 @@
 # GigaChad GRC
 
 [![License: Elastic-2.0](https://img.shields.io/badge/License-Elastic--2.0-blue.svg)](LICENSE)
-[![Node.js 20+](https://img.shields.io/badge/Node.js-20%2B-green.svg)](https://nodejs.org/)
+[![Node.js 18+](https://img.shields.io/badge/Node.js-18%2B-green.svg)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/Docker-Ready-blue.svg)](https://www.docker.com/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
-[![Open in Gitpod](https://img.shields.io/badge/Gitpod-Try%20Demo-orange.svg)](https://gitpod.io/#https://github.com/YOUR_ORG/gigachad-grc)
 
 A comprehensive, modular, containerized Governance, Risk, and Compliance (GRC) platform built with modern technologies. Manage your entire security program from compliance tracking to risk management, third-party assessments, and external audits.
 
@@ -15,18 +14,19 @@ A comprehensive, modular, containerized Governance, Risk, and Compliance (GRC) p
 
 ## 🚀 Try It Now
 
-**Option 1: One-Click Local Demo** (requires Docker)
+One command brings the whole platform up locally — infrastructure in Docker, the six services and the UI on your machine:
+
 ```bash
-git clone https://github.com/YOUR_ORG/gigachad-grc.git
+git clone https://github.com/rajkrishnamurthy/gigachad-grc.git
 cd gigachad-grc
-./scripts/start-demo.sh
+./scripts/start-demo.sh          # same as: npm run demo
 ```
 
-**Option 2: Browser-Based Demo** (no installation)
+You need Docker running and Node.js 18+ with npm. The first run installs dependencies and takes a few minutes; subsequent starts finish in well under a minute. When it finishes, open **http://localhost:3000** and click **Dev Login (Skip SSO)** — the demo organization arrives pre-loaded with roughly a thousand sample records.
 
-[![Open in Gitpod](https://gitpod.io/button/open-in-gitpod.svg)](https://gitpod.io/#https://github.com/YOUR_ORG/gigachad-grc)
+Stop it again with `./scripts/stop-demo.sh` (or `npm run demo:stop`).
 
-➡️ See the **[Demo & Sandbox Guide](docs/DEMO.md)** for detailed instructions and demo data.
+➡️ Full walkthrough, flags and runtime layout: **[Quick Start](#quick-start)** below. Sample-data details: **[Demo & Sandbox Guide](docs/DEMO.md)**. If something goes wrong: **[Troubleshooting](docs/TROUBLESHOOTING.md)**.
 
 ---
 
@@ -152,7 +152,7 @@ Framework readiness assessment and gap analysis for major compliance standards.
 
 ### 2. Data Management Module
 
-#### Evidence Library
+#### Evidence Library (Port 3001 — served by the controls service)
 Centralized repository for all compliance evidence with intelligent organization.
 
 **Features:**
@@ -229,7 +229,7 @@ External tool integrations for automated evidence collection.
 - `POST /api/integrations/:id/test` - Test connection
 - `POST /api/integrations/:id/collect` - Trigger manual collection
 
-### 3. Risk Management Module (Ports 3001-3002)
+### 3. Risk Management Module (Port 3001)
 
 Complete enterprise risk management with quantitative and qualitative approaches.
 
@@ -356,7 +356,7 @@ Contract lifecycle management for vendor relationships.
 
 **API Endpoints:**
 - `GET/POST /api/vendors` - Vendor management
-- `GET/POST /api/assessments` - Assessment workflows
+- `GET/POST /api/vendor-assessments` - Vendor assessment workflows (the proxy rewrites this to `/assessments` inside the service; the unprefixed `/api/assessments` route belongs to the frameworks service on port 3002)
 - `GET/POST /api/contracts` - Contract management
 
 ### 5. Trust Module (Port 3006)
@@ -417,7 +417,7 @@ Public-facing security and compliance transparency portal.
 - `GET/POST /api/trust-center/content` - Content management
 - `GET /api/trust-center/public` - Public trust center view
 
-### 6. Audit Module (Port 3007) **[NEW]**
+### 6. Audit Module (Port 3007)
 
 Comprehensive audit management for internal and external compliance audits.
 
@@ -588,11 +588,7 @@ Security awareness through realistic phishing simulations.
 Enterprise AI capabilities and MCP (Model Context Protocol) server integration for intelligent GRC operations.
 
 #### AI Configuration
-AI-powered features using GPT-5 (OpenAI) or Claude Opus 4.5 (Anthropic).
-
-**Supported AI Providers**:
-- **OpenAI**: GPT-5 (Most Capable), GPT-5 Mini, o3 (Advanced Reasoning), o3-mini
-- **Anthropic**: Claude Opus 4.5 (Most Capable), Claude Sonnet 4, Claude 3.5 Sonnet, Claude 3.5 Haiku
+Configurable OpenAI or Anthropic models — see [docs/help/ai-mcp/ai-configuration.md](docs/help/ai-mcp/ai-configuration.md) for the provider and model options and how to set them.
 
 **AI Features**:
 - **Risk Scoring**: AI-suggested risk likelihood and impact with rationale
@@ -724,13 +720,15 @@ The main dashboard provides an executive overview of your entire GRC program:
 
 ## Architecture
 
+The diagram below is the full container topology described by `docker-compose.yml`. The local demo runs a subset of it: Traefik is not started, and the Vite dev server proxies `/api/*` to the services instead — see [Architecture at runtime](#architecture-at-runtime).
+
 ```
 ┌───────────────────────────────────────────────────────────────────────┐
 │                           Traefik Gateway                              │
 │                           (API Routing)                                │
 ├──────────┬──────────┬──────────┬──────────┬──────────┬──────────┬────┤
 │ Controls │Frameworks│ Policies │   TPRM   │  Trust   │  Audit   │ UI │
-│  :3001   │  :3002   │  :3004   │  :3005   │  :3006   │  :3007   │:5173
+│  :3001   │  :3002   │  :3004   │  :3005   │  :3006   │  :3007   │:3000
 ├──────────┴──────────┴──────────┴──────────┴──────────┴──────────┴────┤
 │                          Shared Library                                │
 │          (Prisma Schema, Types, Auth, Storage, Events)                 │
@@ -774,72 +772,147 @@ Infrastructure Layer:
 
 ### Prerequisites
 
-- Docker and Docker Compose
-- Node.js 20+ (for local development)
+- **Docker** (Desktop, Colima or Engine) running, with the Compose v2 plugin (`docker compose`)
+- **Node.js 18+** (20+ recommended) and npm
+- These host ports free: `3000`, `3001`, `3002`, `3004`, `3005`, `3006`, `3007`, `5433`, `6380`, `8080`, `9000`, `9001`
 
-### Running with Docker
+### Start the platform
 
-1. Clone the repository:
 ```bash
-git clone https://github.com/your-org/gigachad-grc.git
+git clone https://github.com/rajkrishnamurthy/gigachad-grc.git
 cd gigachad-grc
+./scripts/start-demo.sh          # same as: npm run demo
 ```
 
-2. Copy environment file:
+`scripts/start-demo.sh` is the supported way to run GigaChad GRC locally. The first run installs dependencies and takes a few minutes; subsequent starts finish in well under a minute, because dependencies and build output are reused. It performs eight steps:
+
+1. Checks prerequisites (Docker, Compose v2, Node.js 18+, npm) and that every required host port is free, naming any conflict instead of failing halfway.
+2. Creates `.env` from `env.development` if it is missing, and refuses to continue when `.env` sets `NODE_ENV=production`.
+3. Starts infrastructure in Docker — `docker compose up -d postgres redis keycloak minio` — then waits for PostgreSQL and for the Keycloak realm to import.
+4. Creates the database schema with `prisma db push` against `services/shared/prisma/schema.prisma`, then applies `database/dev-bootstrap.sql`.
+5. Runs `npm install` if `node_modules` is absent, then builds the shared library and the six services in parallel.
+6. Starts the six NestJS services on the host and waits for each port to accept connections.
+7. Loads demo data on first run, and skips it when data is already present.
+8. Starts the Vite dev server on port 3000 and opens your browser.
+
+Per-process logs are written to `.demo/logs/`.
+
+### Signing in
+
+Open **http://localhost:3000** and click **Dev Login (Skip SSO)**. No password is needed; you are signed in as an admin of the demo organization.
+
+Use `localhost`, not `127.0.0.1`. The Keycloak client in `auth/realm-export.json` allows only `http://localhost:3000/*` as a redirect URI, so `127.0.0.1` lands on a Keycloak "invalid redirect uri" page.
+
+> ⚠️ **The development stack has no authentication.**
+>
+> In development every controller uses `DevAuthGuard`, which fabricates a full-permission admin user from any request and never validates a token. The genuine JWKS-validating `JwtAuthGuard` in `services/shared/src/auth/jwt.guard.ts` is currently wired to zero controllers. Keep the demo bound to loopback, and never expose it to a network or the internet.
+>
+> The Dev Login button is gated on Vite's `import.meta.env.DEV`, not on `VITE_ENABLE_DEV_AUTH` — that variable exists only to make production builds fail loudly. Setting it will not change dev login behaviour either way.
+
+### Options
+
 ```bash
-cp env.example .env
+./scripts/start-demo.sh --skip-build     # reuse the existing dist/ output
+./scripts/start-demo.sh --no-seed        # start without loading demo data
+./scripts/start-demo.sh --no-browser     # do not open a browser
+./scripts/start-demo.sh --help
 ```
 
-3. Start all services:
+### Stopping
+
 ```bash
-docker-compose up -d
+./scripts/stop-demo.sh           # stop host processes and containers, keep data (npm run demo:stop)
+./scripts/stop-demo.sh --clean   # also drop the PostgreSQL, Redis and MinIO volumes
+./scripts/stop-demo.sh --purge   # --clean, plus remove .env, .demo/ and build output
 ```
 
-4. Run database migrations and seed data:
+`Ctrl+C` in the `start-demo.sh` terminal stops the host processes but leaves the containers running — run `stop-demo.sh` to stop those too. `npm run demo:reset` is `stop-demo.sh --clean` followed by a fresh start, i.e. an empty database and freshly seeded demo data.
+
+### Architecture at runtime
+
+The demo splits the stack in two:
+
+| Runs in Docker | Runs on the host |
+|----------------|------------------|
+| PostgreSQL, Redis, Keycloak, MinIO | The six NestJS services and the Vite dev server |
+
+`env.development` is written for exactly this layout: `DATABASE_URL`, `REDIS_URL`, `MINIO_ENDPOINT` and `KEYCLOAK_URL` all point at `localhost` and the published container ports.
+
+Why not containerise the services as well? `docker-compose.yml` can build all six, but the first build of those images takes roughly 25-60 minutes, while compiling them on the host takes seconds. The host is the fast path for day-to-day work.
+
+Keycloak is required even though the demo signs in with Dev Login: `frontend/src/contexts/AuthContext.tsx` calls `keycloak.init({ onLoad: 'check-sso' })` on every page load, and with Keycloak down the browser fails with `ERR_CONNECTION_REFUSED` before the login screen renders.
+
+**Keycloak has its own database.** Its realm, clients and users live in a dedicated `keycloak` database, created on first volume initialisation by `database/bootstrap/00-create-keycloak-db.sql` and wired up through `KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak` in `docker-compose.yml`. It used to share the application database, which put its ~90 tables (`user_entity`, `redirect_uris`, …) into the same `public` schema Prisma manages; Prisma treated them as foreign, so every `prisma db push` offered to drop them — taking the realm and its users with it. With the split, `db push` only ever sees tables it owns.
+
+**Running the full container stack.** `docker-compose.yml` holds the complete topology — the six services plus Traefik, Prometheus and Grafana. The images do not create the database schema, so it has to exist first:
+
 ```bash
-docker-compose exec controls npm run prisma:migrate
-docker-compose exec frameworks npm run seed
+cp env.development .env
+npm install                 # provides the Prisma CLI used by db:push
+docker compose up -d postgres
+npm run db:push             # create the schema in the running PostgreSQL container
+docker compose up -d        # build and start everything else (first build is slow)
 ```
 
-5. Access the application:
-- Frontend: http://localhost:3000
-- Keycloak Admin: http://localhost:8080 (admin/admin)
-- Traefik Dashboard: http://localhost:8090
-- MinIO Console: http://localhost:9001 (minioadmin/minioadminpassword)
+`docker-compose.dev.yml` is stale and unused: it references `services/integrations`, `services/mcp` and `frontend/Dockerfile.dev`, none of which exist in this repository.
 
-### Local Development
+### Environment templates
 
-1. Start infrastructure services:
+| File | Purpose |
+|------|---------|
+| `env.development` | Local development and the demo. `start-demo.sh` copies it to `.env`. |
+| `deploy/env.example` | Template used by the deployment tooling; sets `NODE_ENV=production`. |
+| `env.example.production` | Production reference covering every supported variable. |
+
+There is no `env.example` at the repository root. Do not copy a production template to `.env` for local work: `DevAuthGuard` throws when `NODE_ENV=production`, so every controls endpoint answers HTTP 500 rather than 401. `start-demo.sh` detects that `.env` and stops with instructions.
+
+### Database and demo data
+
+The schema is owned by Prisma (`services/shared/prisma/schema.prisma`, 129 models):
+
 ```bash
-docker-compose up -d postgres redis keycloak minio
+npm run db:push      # prisma db push --schema=services/shared/prisma/schema.prisma
+npm run db:studio    # browse the data in Prisma Studio
 ```
 
-2. Install dependencies:
+The repository ships no baseline migration, so `prisma migrate deploy` has nothing to apply — use `db:push`. `database/init/*.sql` is legacy and **not** applied: those files are incremental patches against Prisma-owned tables, and are deliberately not mounted into the PostgreSQL container. `database/dev-bootstrap.sql` inserts the organization and user that `DevAuthGuard` hard-codes; without those rows the demo seeder fails with Prisma error `P2025`.
+
+`start-demo.sh` loads demo data automatically on first run. To load it by hand:
+
 ```bash
-# Shared library
-cd services/shared && npm install && npm run build && cd ../..
-
-# Controls service
-cd services/controls && npm install && cd ../..
-
-# Frameworks service
-cd services/frameworks && npm install && cd ../..
-
-# Frontend
-cd frontend && npm install && cd ..
+curl -X POST http://localhost:3001/api/seed/load-demo
 ```
 
-3. Run services:
+…or load it from the UI. Re-running it returns HTTP 409 once the organization holds data — reset from **Settings → Organization → Demo Data** first. All endpoints are throttled at 5 req/s, 30 req/10s and 100 req/min. It creates about a thousand records. Fixed every run: 3 frameworks (SOC 2 Type II, ISO 27001:2022, HIPAA), 276 framework requirements, 49 controls with 49 implementations, 20 evidence items, 15 policies, 20 vendors, 25 risks, 50 employees, 37 assets, 10 integrations and 5 audits. Control mappings, evidence links, vendor assessments, training records and background checks are randomised per run, so the grand total moves by a few dozen records each time.
+
+### Health checks
+
+Only the controls service exposes a health route:
+
 ```bash
-# Terminal 1 - Controls service
-cd services/controls && npm run start:dev
-
-# Terminal 2 - Frameworks service
-cd services/frameworks && npm run start:dev
-
-# Terminal 3 - Frontend
-cd frontend && npm run dev
+curl http://localhost:3001/api/system/health    # {"status":"healthy",...}
 ```
+
+The other five services do not — the shared `HealthModule` is not wired into them, so `/health` and `/api/health` return 404. Readiness for those is a TCP check on their port, which is what `start-demo.sh` does.
+
+### Working on a single service
+
+```bash
+npm install                                    # once, workspace-wide
+npm run build:shared                           # services/* import @gigachad-grc/shared from dist/
+npm --prefix services/controls run start:dev   # watch mode on port 3001
+npm --prefix frontend run dev                  # Vite on port 3000 (set in frontend/vite.config.ts)
+```
+
+Build every backend at once with `npm run build:services`. Infrastructure still has to be up: `docker compose up -d postgres redis keycloak minio`.
+
+### Troubleshooting
+
+- **`Ports already in use`** — a previous run or another app owns a port. Run `./scripts/stop-demo.sh`, or identify the owner with `lsof -nP -iTCP:3000 -sTCP:LISTEN`.
+- **Every API call returns HTTP 500** — your `.env` sets `NODE_ENV=production`, which disables development auth. Replace it with a copy of `env.development`.
+- **Keycloak shows "invalid redirect uri"** — open `http://localhost:3000`, never `http://127.0.0.1:3000`.
+- **The login page never renders (`ERR_CONNECTION_REFUSED`)** — Keycloak is down; it is required even for Dev Login. Check `docker compose logs keycloak`.
+- Anything else: **[Troubleshooting](docs/TROUBLESHOOTING.md)**.
 
 ## Production Readiness & Resilience
 
@@ -879,7 +952,7 @@ When running with Docker, the entrypoint script provides:
 | Feature | Environment Variable | Description |
 |---------|---------------------|-------------|
 | Auto-backup scheduling | `AUTO_BACKUP_ENABLED=true` | Schedules daily backups via cron |
-| Database migrations | `AUTO_MIGRATE=true` | Runs migrations on startup |
+| Database migrations | `AUTO_MIGRATE=true` (default) | Runs `prisma migrate deploy` on startup. The repository ships no migration files, so this applies nothing — create the schema with `npm run db:push` |
 | Dependency wait | `WAIT_FOR_DB=true` | Waits for PostgreSQL before starting |
 | Config warnings | Always enabled | Logs warnings for production misconfigurations |
 
@@ -894,7 +967,7 @@ All critical data is stored in Docker named volumes that survive container resta
 | Cache/Sessions | `redis_data` | ✅ Yes |
 | Metrics | `prometheus_data` | ✅ Yes |
 
-**Important**: Running `docker-compose down -v` will delete volumes. Always run backups before maintenance.
+**Important**: Running `./scripts/stop-demo.sh --clean` will delete volumes. Always run backups before maintenance.
 
 ### Backup & Restore
 
@@ -966,7 +1039,7 @@ gigachad-grc/
 │   │   ├── Dockerfile
 │   │   └── package.json
 │   │
-│   └── audit/                # Audit Management (NEW)
+│   └── audit/                # Audit Management
 │       ├── src/
 │       │   ├── audits/       # Audit orchestration
 │       │   ├── requests/     # Evidence requests
@@ -985,7 +1058,7 @@ gigachad-grc/
 │   │   │   ├── Risks.tsx
 │   │   │   ├── Vendors.tsx
 │   │   │   ├── Questionnaires.tsx
-│   │   │   ├── Audits.tsx    # NEW
+│   │   │   ├── Audits.tsx
 │   │   │   └── ...
 │   │   ├── components/       # Reusable components
 │   │   ├── contexts/         # React contexts (Auth)
@@ -999,50 +1072,80 @@ gigachad-grc/
 │   └── traefik.yml
 │
 ├── database/
-│   ├── init/                 # Database initialization
-│   └── seeds/                # Seed data (frameworks, controls)
+│   ├── dev-bootstrap.sql     # Dev organization + user rows (applied by start-demo.sh)
+│   └── init/                 # Legacy SQL patches - not applied, kept for history
 │
-├── docker-compose.yml        # Production compose
-├── docker-compose.dev.yml    # Development overrides
-├── .env.example              # Environment template
+├── scripts/
+│   ├── start-demo.sh         # One-command local demo
+│   └── stop-demo.sh          # Tear the demo down
+│
+├── docker-compose.yml        # Full container stack (infra + services + monitoring)
+├── docker-compose.dev.yml    # Stale override, unused (references removed services)
+├── env.development           # Development environment template
+├── env.example.production    # Production environment template
 └── README.md                 # This file
 ```
 
 ## Service Ports & Documentation
 
-Each microservice runs on its own port with Swagger API documentation:
+One authoritative list of host ports. Each backend service serves Swagger at `/api/docs`.
 
-| Service | Port | Swagger Docs | Description |
-|---------|------|--------------|-------------|
-| **Frontend** | 5173 | N/A | React SPA (Vite dev server) |
-| **Controls** | 3001 | http://localhost:3001/api/docs | Controls, Evidence, Testing |
-| **Frameworks** | 3002 | http://localhost:3002/api/docs | Frameworks, Risk Management |
-| **Policies** | 3004 | http://localhost:3004/api/docs | Policy Lifecycle Management |
-| **TPRM** | 3005 | http://localhost:3005/api/docs | Vendor Risk Management |
-| **Trust** | 3006 | http://localhost:3006/api/docs | Questionnaires, KB, Trust Center |
-| **Audit** | 3007 | http://localhost:3007/api/docs | Audit Management |
-| **PostgreSQL** | 5433 | N/A | Primary database |
-| **Redis** | 6380 | N/A | Cache & sessions |
-| **Keycloak** | 8080 | http://localhost:8080 | Auth & SSO (admin/admin) |
-| **Traefik** | 80/443 | http://localhost:8090 | API Gateway dashboard |
-| **MinIO API** | 9000 | N/A | Object storage API |
-| **MinIO Console** | 9001 | http://localhost:9001 | Storage admin UI |
+| Service | Host port | Started by the demo | Notes |
+|---------|-----------|---------------------|-------|
+| **Frontend** | 3000 | ✅ | Vite dev server — open http://localhost:3000 |
+| **Controls** | 3001 | ✅ | http://localhost:3001/api/docs — controls, evidence, risks, assets, dashboards, users, AI/MCP |
+| **Frameworks** | 3002 | ✅ | http://localhost:3002/api/docs |
+| **Policies** | 3004 | ✅ | http://localhost:3004/api/docs |
+| **TPRM** | 3005 | ✅ | http://localhost:3005/api/docs |
+| **Trust** | 3006 | ✅ | http://localhost:3006/api/docs |
+| **Audit** | 3007 | ✅ | http://localhost:3007/api/docs |
+| **PostgreSQL** | 5433 | ✅ | Container listens on 5432 |
+| **Redis** | 6380 | ✅ | Container listens on 6379 |
+| **Keycloak** | 8080 | ✅ | Admin console; `KEYCLOAK_ADMIN` / `KEYCLOAK_ADMIN_PASSWORD` from `.env` (`admin` / `admin` in `env.development`) |
+| **MinIO API** | 9000 | ✅ | S3-compatible object storage |
+| **MinIO Console** | 9001 | ✅ | `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` from `.env`; `start-demo.sh` prints both when it finishes |
+| **Traefik** | 80 / 443, dashboard 8090 | ❌ | Full container stack only |
+| **Prometheus** | 9090 | ❌ | Full container stack only |
+| **Grafana** | 3003 | ❌ | Container port 3000 published on 3003 |
+
+**There is no service on port 3003.** Backend ports are 3001, 3002 and 3004-3007; 3003 belongs to Grafana in `docker-compose.yml`.
+
+### Which service owns which route
+
+The Vite dev server proxies each `/api/*` prefix to its owning service (`frontend/vite.config.ts`). Evidence is served by the **controls** service, not a service of its own.
+
+| Service | Port | `/api` prefixes |
+|---------|------|-----------------|
+| **Controls** | 3001 | `/api/controls` `/api/evidence` `/api/implementations` `/api/dashboard` `/api/dashboards` `/api/comments` `/api/tasks` `/api/integrations` `/api/notifications` `/api/users` `/api/permissions` `/api/risks` `/api/assets` `/api/risk-config` `/api/risk-scenarios` `/api/seed` `/api/employee-compliance` `/api/notifications-config` `/api/training` `/api/ai` `/api/mcp` `/api/system` `/api/bulk` `/api/modules` `/api/config-as-code` `/api/workspaces` `/api/frameworks/catalog` `/api/audit` |
+| **Frameworks** | 3002 | `/api/frameworks` `/api/assessments` `/api/mappings` |
+| **Policies** | 3004 | `/api/policies` |
+| **TPRM** | 3005 | `/api/vendors` `/api/contracts` `/api/vendor-assessments` `/api/tprm-config` (the proxy strips the `/api` prefix; internal routes are `/vendors` etc.) |
+| **Trust** | 3006 | `/api/questionnaires` `/api/knowledge-base` `/api/trust-center` `/api/trust-config` `/api/answer-templates` `/api/trust-ai` (also served with the `/api` prefix stripped) |
+| **Audit** | 3007 | `/api/audits` `/api/audit-requests` `/api/findings` `/api/audit/templates` `/api/audit/workpapers` `/api/audit/test-procedures` `/api/audit/remediation` `/api/audit/analytics` `/api/audit/planning` `/api/audit/reports` `/api/audit/audit-ai` |
+
+Note the split around audit: `/api/audit` (activity audit logging) belongs to controls, while `/api/audits` and `/api/audit/*` belong to the audit service.
 
 ## Configuration
 
 ### Environment Variables
 
+Defaults below are the fallbacks in `docker-compose.yml`. **None of these fallbacks are what the demo runs with** — `env.development` overrides every password with a generated value, so read your `.env` for the credentials actually in effect.
+
 | Variable | Description | Default |
 |----------|-------------|---------|
+| `NODE_ENV` | Runtime mode; `production` disables development auth | development |
 | `POSTGRES_USER` | Database user | grc |
 | `POSTGRES_PASSWORD` | Database password | grc_secret |
 | `POSTGRES_DB` | Database name | gigachad_grc |
 | `REDIS_PASSWORD` | Redis password | redis_secret |
 | `KEYCLOAK_ADMIN` | Keycloak admin user | admin |
 | `KEYCLOAK_ADMIN_PASSWORD` | Keycloak admin password | admin |
+| `KEYCLOAK_REALM` | Realm imported from `auth/realm-export.json` | gigachad-grc |
 | `MINIO_ROOT_USER` | MinIO root user | minioadmin |
-| `MINIO_ROOT_PASSWORD` | MinIO root password | minioadminpassword |
+| `MINIO_ROOT_PASSWORD` | MinIO root password | minioadmin |
 | `STORAGE_TYPE` | Storage backend (local/minio) | minio |
+
+The frontend clients are `grc-frontend` (SPA) and `grc-services` (backend), both in realm `gigachad-grc`.
 
 ### Storage Configuration
 
@@ -1057,10 +1160,11 @@ LOCAL_STORAGE_PATH=./storage
 **MinIO/S3:**
 ```env
 STORAGE_TYPE=minio
-MINIO_ENDPOINT=minio
+# Use `minio` when the service runs in Docker, `localhost` when it runs on the host
+MINIO_ENDPOINT=localhost
 MINIO_PORT=9000
 MINIO_ACCESS_KEY=minioadmin
-MINIO_SECRET_KEY=minioadminpassword
+MINIO_SECRET_KEY=<the MINIO_ROOT_PASSWORD from your .env>
 MINIO_BUCKET=grc-evidence
 ```
 
@@ -1070,17 +1174,23 @@ Each service is designed to run independently. To extract a module:
 
 1. Copy the service directory
 2. Update the `DATABASE_URL` in the service's environment
-3. Run migrations: `npm run prisma:migrate`
+3. Create the schema: `npx prisma db push --schema=../shared/prisma/schema.prisma` (the schema is shared and there is no baseline migration, so `migrate deploy` has nothing to apply)
 4. Build and run: `docker build -t my-service . && docker run my-service`
 
 ## Security Considerations
 
-- All passwords should be changed in production
+> ⚠️ **The development configuration has no authentication at all.** Every controller is bound to `DevAuthGuard`, which fabricates a full-permission admin user from any request without validating a token. The real JWKS-validating `JwtAuthGuard` (`services/shared/src/auth/jwt.guard.ts`) is wired to zero controllers today. A development instance must stay on loopback and must never be exposed to a network.
+
+Before running anywhere but your own machine:
+
+- Change every password and secret from the shipped development values
+- Wire `JwtAuthGuard` (or your own guard) into the controllers and stop using `DevAuthGuard`
 - Enable TLS/SSL for all services
 - Configure Keycloak for production use
 - Use proper secrets management
 - Review and harden Docker images
-- Images should be pulled from Docker Hub's Hardened Images
+
+`npm run validate:production` checks configuration before a production deploy; see [Production Readiness & Resilience](#production-readiness--resilience).
 
 ## License
 
@@ -1112,7 +1222,7 @@ By contributing, you agree that your contributions will be licensed under the sa
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
 3. Make your changes following our [coding standards](CONTRIBUTING.md#coding-standards)
-4. Run tests (`npm test`)
+4. Run the tests for the services you touched (e.g. `npm --prefix services/controls run test`) — see the [Contributing Guide](CONTRIBUTING.md)
 5. Submit a pull request
 
 ## Support

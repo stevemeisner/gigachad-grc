@@ -9,9 +9,8 @@ This comprehensive guide explains how to run GigaChad GRC in demo mode to explor
 - [Quick Start Options](#quick-start-options)
 - [Prerequisites](#prerequisites)
 - [Option 1: One-Click Local Demo](#option-1-one-click-local-demo-recommended)
-- [Option 2: Gitpod (Browser-Based)](#option-2-gitpod-browser-based)
-- [Option 3: GitHub Codespaces](#option-3-github-codespaces)
-- [Option 4: Manual Setup](#option-4-manual-setup)
+- [Option 2: GitHub Codespaces](#option-2-github-codespaces)
+- [Option 3: Manual Setup](#option-3-manual-setup)
 - [Loading Demo Data](#loading-demo-data)
 - [What's Included in Demo Data](#whats-included-in-demo-data)
 - [Using Dev Auth Mode](#dev-auth-mode)
@@ -26,7 +25,6 @@ This comprehensive guide explains how to run GigaChad GRC in demo mode to explor
 | Method | Time to Start | Requirements | Best For |
 |--------|---------------|--------------|----------|
 | **One-Click Script** | ~3 minutes | Docker Desktop, Node.js | Local evaluation |
-| **Gitpod** | ~2 minutes | Web browser only | Quick try without install |
 | **GitHub Codespaces** | ~2 minutes | GitHub account | Developers with Codespaces access |
 | **Manual Setup** | ~10 minutes | Docker, Node.js | Custom configuration |
 
@@ -34,7 +32,7 @@ This comprehensive guide explains how to run GigaChad GRC in demo mode to explor
 
 ## Prerequisites
 
-### For Local Demo (Options 1 & 4)
+### For Local Demo (Options 1 & 3)
 
 | Requirement | Version | Download |
 |-------------|---------|----------|
@@ -69,7 +67,7 @@ git --version
 | Disk Space | 5 GB | 10 GB |
 | CPU | 2 cores | 4 cores |
 
-### For Browser-Based Demo (Options 2 & 3)
+### For Browser-Based Demo (Option 2)
 
 - Modern web browser (Chrome, Firefox, Safari, Edge)
 - Internet connection
@@ -84,7 +82,7 @@ The fastest way to see GigaChad GRC in action on your local machine.
 ### Step 1: Clone the Repository
 
 ```bash
-git clone https://github.com/YOUR_ORG/gigachad-grc.git
+git clone https://github.com/rajkrishnamurthy/gigachad-grc.git
 cd gigachad-grc
 ```
 
@@ -96,14 +94,20 @@ cd gigachad-grc
 
 ### What the Script Does
 
-1. ✅ Verifies Docker is running
-2. ✅ Creates `.env` file from template if missing
-3. ✅ Starts infrastructure (PostgreSQL, Redis, MinIO)
-4. ✅ Waits for database to be ready
-5. ✅ Starts all backend API services
-6. ✅ Installs frontend dependencies (if needed)
-7. ✅ Starts the frontend development server
-8. ✅ Opens your browser to `http://localhost:3000`
+1. ✅ Verifies Docker is running and that every required host port is free
+2. ✅ Creates `.env` from `env.development` if missing (and refuses a `.env`
+   carrying `NODE_ENV=production`)
+3. ✅ Starts infrastructure (PostgreSQL, Redis, Keycloak, MinIO)
+4. ✅ Waits for the database, then creates the schema with `prisma db push`
+5. ✅ Applies `database/dev-bootstrap.sql` (the organization and user
+   `DevAuthGuard` hard-codes)
+6. ✅ Builds the shared library and the six services, then starts them
+7. ✅ Installs frontend dependencies (if needed) and starts the dev server
+8. ✅ Loads demo data on the first run
+9. ✅ Opens your browser to `http://localhost:3000`
+
+Use `http://localhost:3000`, not `127.0.0.1:3000` — only `localhost` is in
+Keycloak's redirect allow-list (`auth/realm-export.json`).
 
 ### Expected Output
 
@@ -140,47 +144,19 @@ cd gigachad-grc
 ### Stopping the Demo
 
 ```bash
-# Stop all services
-docker compose down
+# Stop the frontend, the six services and the containers
+./scripts/stop-demo.sh
 
-# Or press Ctrl+C in the terminal running the script
+# Also drop the database volumes (fresh start next time)
+./scripts/stop-demo.sh --clean
 ```
 
----
-
-## Option 2: Gitpod (Browser-Based)
-
-Try GigaChad GRC instantly in your browser—no installation required.
-
-### Step 1: Open in Gitpod
-
-Click this button or the badge in the README:
-
-[![Open in Gitpod](https://gitpod.io/button/open-in-gitpod.svg)](https://gitpod.io/#https://github.com/YOUR_ORG/gigachad-grc)
-
-### Step 2: Wait for Environment
-
-Gitpod will:
-1. Create a cloud workspace
-2. Install all dependencies
-3. Start the database and services
-4. Open the application preview
-
-### Step 3: Access the Application
-
-- The frontend will open automatically in a preview pane
-- Click "Open in Browser" for full-screen access
-- Use Dev Login to access the platform
-
-### Gitpod Free Tier
-
-- **50 hours/month** free for open source projects
-- No credit card required
-- Workspaces auto-stop after 30 minutes of inactivity
+Ctrl+C in the terminal running the script stops the frontend and the six host
+processes but leaves the containers running; `stop-demo.sh` stops those too.
 
 ---
 
-## Option 3: GitHub Codespaces
+## Option 2: GitHub Codespaces
 
 Use GitHub's built-in cloud development environment.
 
@@ -191,25 +167,21 @@ Use GitHub's built-in cloud development environment.
 3. Select the **"Codespaces"** tab
 4. Click **"Create codespace on main"**
 
-### Step 2: Wait for Setup
+### Step 2: Wait for the Container
 
-The devcontainer will:
-1. Build the development container
-2. Install dependencies
-3. Start infrastructure services
-4. Configure the environment
+The repository ships no `.devcontainer` configuration, so a codespace is a plain
+Linux container with Docker and Node.js available. Nothing is started for you.
 
 ### Step 3: Start the Application
 
 Once the terminal is ready:
 
 ```bash
-# Start backend services
-docker compose up -d
-
-# Start frontend
-cd frontend && npm run dev
+./scripts/start-demo.sh
 ```
+
+The script creates `.env` from `env.development`, creates the schema, inserts the
+development organization and user, starts the services and loads demo data.
 
 ### Step 4: Access the Application
 
@@ -224,7 +196,7 @@ cd frontend && npm run dev
 
 ---
 
-## Option 4: Manual Setup
+## Option 3: Manual Setup
 
 For users who want more control over the setup process.
 
@@ -232,7 +204,7 @@ For users who want more control over the setup process.
 
 ```bash
 # Clone repository
-git clone https://github.com/YOUR_ORG/gigachad-grc.git
+git clone https://github.com/rajkrishnamurthy/gigachad-grc.git
 cd gigachad-grc
 
 # Install root dependencies
@@ -245,28 +217,45 @@ cd frontend && npm install && cd ..
 ### Step 2: Start Infrastructure
 
 ```bash
-# Start database, cache, and storage
-docker compose up -d postgres redis minio
+# Start database, cache, identity provider and object storage
+docker compose up -d postgres redis keycloak minio
 
 # Wait for services to be healthy
 docker compose ps
 ```
 
+Keycloak has to be running even if you only ever use Dev Login: the frontend
+calls `keycloak.init({ onLoad: 'check-sso' })` on every page load.
+
 ### Step 3: Configure Environment
 
-Create a `.env` file in the frontend directory:
-
 ```bash
-cat > frontend/.env.local << EOF
-VITE_ENABLE_DEV_AUTH=true
-VITE_API_URL=http://localhost:3001
-VITE_KEYCLOAK_URL=http://localhost:8080
-VITE_KEYCLOAK_REALM=gigachad-grc
-VITE_KEYCLOAK_CLIENT_ID=grc-frontend
-EOF
+cp env.development .env
 ```
 
-### Step 4: Start Services
+> ⚠️ Use `env.development`. There is no `env.example` at the repository root, and
+> `deploy/env.example` is the **production** template — it sets
+> `NODE_ENV=production`, which makes `DevAuthGuard` throw so every controls
+> endpoint answers HTTP 500.
+
+Leave `VITE_API_URL` empty, as the template ships it: the Vite dev server proxies
+each `/api/*` prefix to the service that owns it (`frontend/vite.config.ts`).
+Pointing the SPA at a single service breaks every other module.
+
+### Step 4: Create the Database Schema
+
+```bash
+# One shared schema for all six services
+npm run db:push
+
+# Insert the organization and user that DevAuthGuard hard-codes
+docker compose exec -T postgres \
+  psql -U grc -d gigachad_grc < database/dev-bootstrap.sql
+```
+
+Without those two rows the demo seeder fails with Prisma error `P2025`.
+
+### Step 5: Start Services
 
 **Option A: Docker (All Services)**
 ```bash
@@ -287,10 +276,10 @@ cd services/frameworks && npm run start:dev
 
 Terminal 3 - Frontend:
 ```bash
-cd frontend && VITE_ENABLE_DEV_AUTH=true npm run dev
+cd frontend && npm run dev
 ```
 
-### Step 5: Access the Application
+### Step 6: Access the Application
 
 Open `http://localhost:3000` in your browser.
 
@@ -319,23 +308,21 @@ Once the platform is running, load comprehensive sample data to explore all feat
 ### Method 2: Via API
 
 ```bash
-# First, get an auth token (if not using dev auth)
-# With dev auth, you can use a simple request:
-
-curl -X POST http://localhost:3001/api/seed/load-demo \
-  -H "Content-Type: application/json" \
-  -H "X-Dev-User-Id: demo-user" \
-  -H "X-Dev-Organization-Id: default" \
-  -H "X-Dev-Role: admin"
+curl -X POST http://localhost:3001/api/seed/load-demo
 ```
 
-### Method 3: Via Database Seed Script
+Development requests need no token — every controller is bound to `DevAuthGuard`,
+which fabricates the admin user. Re-running the route returns HTTP **409** once
+the organization holds data; reset it first (see
+[Resetting Demo Data](#resetting-demo-data)).
 
-```bash
-cd scripts
-npm install
-npx ts-node seed-database.ts
-```
+### Method 3: Automatically, via the Demo Script
+
+`./scripts/start-demo.sh` loads demo data on its first run, so with Option 1
+there is nothing to do. Pass `--no-seed` to start without it.
+
+(The old `scripts/seed-database.ts` is non-functional — it reads a
+`database/seeds/` directory that does not exist. Use the route above.)
 
 ### Verification
 
@@ -410,40 +397,39 @@ Dev Auth provides instant access without configuring Keycloak authentication.
 
 ### How It Works
 
-When `VITE_ENABLE_DEV_AUTH=true` is set:
-1. A "Dev Login" button appears on the login page
-2. Clicking it bypasses Keycloak authentication
-3. You're logged in as a demo admin user
+1. A **"Dev Login"** button appears on the login page whenever the frontend runs
+   under `npm run dev` — it is gated on Vite's `import.meta.env.DEV`
+   (`frontend/src/pages/Login.tsx`), so there is nothing to switch on.
+2. Clicking it skips Keycloak's login flow.
+3. Every backend controller is bound to `DevAuthGuard`, which fabricates a
+   full-permission admin user from any request without validating a token.
 
-### Enable Dev Auth
+Keycloak still has to be running: `AuthContext` calls
+`keycloak.init({ onLoad: 'check-sso' })` on every page load.
 
-**Environment Variable:**
-```bash
-export VITE_ENABLE_DEV_AUTH=true
-```
-
-**In `.env` or `.env.local`:**
-```env
-VITE_ENABLE_DEV_AUTH=true
-```
-
-**In the demo script:** Already enabled automatically.
+> `VITE_ENABLE_DEV_AUTH` does **not** enable Dev Login. It exists only to make a
+> production build fail loudly, so setting it changes nothing in development.
 
 ### Dev Auth User Details
 
 | Property | Value |
 |----------|-------|
-| User ID | `dev-user-id` |
-| Email | `dev@gigachad-grc.local` |
+| User ID | `8f88a42b-e799-455c-b68a-308d7d2e9aa4` (John Doe) |
+| Email | `john.doe@example.com` |
 | Role | `admin` |
-| Organization | `default` |
+| Organization | `8924f0c1-7bb1-4be8-84ee-ad8725c712bf` (default org) |
 | Permissions | Full access to all modules |
+
+Those two UUIDs are hard-coded in `services/*/src/auth/dev-auth.guard.ts` and
+inserted by `database/dev-bootstrap.sql`.
 
 ### Security Note
 
-⚠️ **Never enable Dev Auth in production!** It bypasses all authentication checks.
-
-The start-demo.sh script enables this automatically for demo purposes only.
+⚠️ **Never run the development configuration in production.** It has no
+authentication at all: `DevAuthGuard` trusts every request, and the real
+JWKS-validating `JwtAuthGuard` is wired to zero controllers. `DevAuthGuard`
+throws when `NODE_ENV=production`, so a production `.env` turns every controls
+endpoint into an HTTP 500 rather than securing it. Keep the demo on loopback.
 
 ---
 
@@ -531,9 +517,6 @@ Clear all data to start fresh or reload demo data.
 ```bash
 curl -X POST http://localhost:3001/api/seed/reset \
   -H "Content-Type: application/json" \
-  -H "X-Dev-User-Id: demo-user" \
-  -H "X-Dev-Organization-Id: default" \
-  -H "X-Dev-Role: admin" \
   -d '{"confirmationPhrase": "DELETE ALL DATA"}'
 ```
 
@@ -617,37 +600,49 @@ docker compose logs postgres
 
 #### "Dev Login" button not showing
 
-**Cause:** Dev auth not enabled.
+**Cause:** The frontend is not running in Vite's dev mode — the button is gated
+on `import.meta.env.DEV`, not on any environment variable. A production build
+(`npm run build` + `npm run preview`) never shows it.
 
-**Solution:** 
-1. Set `VITE_ENABLE_DEV_AUTH=true`
-2. Restart the frontend server
+**Solution:** Run the dev server.
 
 ```bash
 cd frontend
-VITE_ENABLE_DEV_AUTH=true npm run dev
+npm run dev
 ```
 
-#### Dev Login gives error
+#### Dev Login gives an error, or every page shows errors
 
-**Cause:** Backend might not accept dev auth headers.
+**Cause:** `.env` carries `NODE_ENV=production` — usually from copying
+`deploy/env.example`. `DevAuthGuard` throws in production, so every controls
+endpoint answers HTTP **500**.
 
-**Solution:** Ensure backend services are running with dev mode enabled.
+**Solution:** Use the development template and restart the services.
+
+```bash
+grep '^NODE_ENV=' .env          # must be development
+mv .env .env.production.bak && cp env.development .env
+./scripts/stop-demo.sh && ./scripts/start-demo.sh
+```
 
 ### Service Issues
 
 #### "Connection refused" errors
 
-**Cause:** Services not running or wrong ports.
+**Cause:** Services not running, or the frontend proxying to a service that
+stopped. In the demo the six services run on the host, not in containers, so
+`docker compose` will not show them.
 
 **Solution:**
 ```bash
-# Check what's running
+# Check the containers
 docker compose ps
 
-# Restart all services
-docker compose down
-docker compose up -d
+# Check a service log (controls, frameworks, policies, tprm, trust, audit)
+tail -20 .demo/logs/controls.log
+
+# Restart everything
+./scripts/stop-demo.sh && ./scripts/start-demo.sh --skip-build
 ```
 
 #### Port already in use
@@ -663,14 +658,14 @@ lsof -i :3000
 kill -9 <PID>
 ```
 
-### Gitpod/Codespaces Issues
+### Codespaces Issues
 
 #### Environment won't start
 
 **Solution:** 
-1. Try stopping and restarting the workspace
+1. Try stopping and restarting the codespace
 2. Clear browser cache and try again
-3. Check Gitpod/Codespaces status page
+3. Check the GitHub Codespaces status page
 
 #### Can't access the application
 

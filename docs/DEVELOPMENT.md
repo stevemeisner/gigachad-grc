@@ -61,24 +61,29 @@
 
 ```bash
 # Clone repository
-git clone https://github.com/your-org/gigachad-grc.git
+git clone https://github.com/rajkrishnamurthy/gigachad-grc.git
 cd gigachad-grc
 
-# Copy environment file
-cp deploy/env.example .env
+# Copy the development environment file
+cp env.development .env
 
 # Install root dependencies
 npm install
 ```
 
+> ⚠️ `deploy/env.example` is the **production** template — it sets
+> `NODE_ENV=production`, which makes `DevAuthGuard` throw so every controls
+> endpoint answers HTTP 500. Never copy it to `.env` for local development.
+> There is no `env.example` at the repository root.
+
 ### 2. Start Infrastructure
 
 ```bash
 # Start all services
-docker-compose up -d
+docker compose up -d
 
 # Wait for services to be healthy
-docker-compose ps
+docker compose ps
 
 # Verify all services are running
 ./deploy/preflight-check.sh
@@ -87,17 +92,30 @@ docker-compose ps
 ### 3. Initialize Database
 
 ```bash
-# Run Prisma migrations for each service
-cd services/controls && npx prisma migrate dev && cd ../..
-cd services/frameworks && npx prisma migrate dev && cd ../..
-cd services/policies && npx prisma migrate dev && cd ../..
-cd services/tprm && npx prisma migrate dev && cd ../..
-cd services/trust && npx prisma migrate dev && cd ../..
-cd services/audit && npx prisma migrate dev && cd ../..
+# One shared Prisma schema covers all six services
+npm run db:push
 
-# Seed database (optional)
-npm run seed
+# Insert the organization and user DevAuthGuard hard-codes
+docker compose exec -T postgres \
+  psql -U grc -d gigachad_grc < database/dev-bootstrap.sql
 ```
+
+The repository ships no baseline migration, so `prisma migrate dev` and
+`prisma migrate deploy` have nothing to apply — `db push` is the supported way
+to create the schema. Without the `dev-bootstrap.sql` rows the demo seeder fails
+with Prisma error `P2025`.
+
+```bash
+# Load demo data (optional)
+curl -X POST http://localhost:3001/api/seed/load-demo
+```
+
+That route returns HTTP 409 once the organization holds data; reset it from
+**Settings → Organization → Demo Data** first. `scripts/seed-database.ts` is
+legacy and non-functional.
+
+`./scripts/start-demo.sh` does all of the above (env file, schema, bootstrap
+rows, services, frontend, demo data) in one command.
 
 ### 4. Start Frontend
 
@@ -111,12 +129,16 @@ npm run dev
 
 | Service | URL | Credentials |
 |---------|-----|-------------|
-| Frontend | http://localhost:3000 | - |
+| Frontend | http://localhost:3000 | Click **Dev Login** |
 | Traefik Dashboard | http://localhost:8090 | - |
 | Keycloak Admin | http://localhost:8080 | admin / admin |
-| MinIO Console | http://localhost:9001 | minioadmin / minioadmin |
-| PostgreSQL | localhost:5433 | grc / grc_secret |
-| Redis | localhost:6380 | redis_secret |
+| MinIO Console | http://localhost:9001 | `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` from `.env` |
+| PostgreSQL | localhost:5433 | `POSTGRES_USER` / `POSTGRES_PASSWORD` from `.env` |
+| Redis | localhost:6380 | `REDIS_PASSWORD` from `.env` |
+
+Open `http://localhost:3000`, not `127.0.0.1:3000` — only `localhost` is in
+Keycloak's redirect allow-list (`auth/realm-export.json`). Port 3000 is the Vite
+dev server port for this project.
 
 ---
 
@@ -127,15 +149,14 @@ gigachad-grc/
 ├── auth/                      # Keycloak configuration
 │   └── realm-export.json      # Realm export file
 │
-├── database/                  # Database initialization
-│   └── init/                  # SQL init scripts
-│       ├── 01-init.sql
-│       ├── 02-soft-delete-migration.sql
-│       ├── 03-database-enums.sql
-│       └── 04-junction-tables.sql
+├── database/                  # Database SQL
+│   ├── dev-bootstrap.sql      # Dev organization/user DevAuthGuard requires
+│   ├── bootstrap/             # Mounted into Postgres on first start
+│   │   └── 00-create-keycloak-db.sql
+│   └── init/                  # Legacy patches — NOT mounted, not applied
 │
 ├── deploy/                    # Deployment files
-│   ├── env.example           # Environment template
+│   ├── env.example           # PRODUCTION template (sets NODE_ENV=production)
 │   ├── preflight-check.sh    # Pre-deployment checks
 │   ├── db-migrate.sh         # Database migration script
 │   ├── backup.sh             # Backup script
@@ -171,11 +192,15 @@ gigachad-grc/
 │   └── traefik.yml           # Traefik configuration
 │
 ├── scripts/                   # Utility scripts
-│   ├── seed-database.ts      # Database seeding
+│   ├── start-demo.sh         # One-command local demo
+│   ├── stop-demo.sh          # Teardown (--clean, --purge)
+│   ├── seed-database.ts      # Legacy, non-functional (no database/seeds/)
 │   └── import-*.ts           # Data import scripts
 │
 ├── services/                  # Backend microservices
 │   ├── shared/               # Shared libraries
+│   │   ├── prisma/
+│   │   │   └── schema.prisma # The single schema for all services (129 models)
 │   │   └── src/
 │   │       ├── auth/         # Auth utilities
 │   │       ├── cache/        # Caching
@@ -191,7 +216,7 @@ gigachad-grc/
 │   │   │   ├── assets/      # Assets module
 │   │   │   └── main.ts
 │   │   ├── prisma/
-│   │   │   └── schema.prisma
+│   │   │   └── migrations/  # Service-local migration (schema lives in shared/)
 │   │   ├── Dockerfile
 │   │   └── package.json
 │   │
@@ -207,6 +232,8 @@ gigachad-grc/
 ├── docker-compose.yml         # Development compose
 ├── docker-compose.dev.yml     # Dev overrides
 ├── docker-compose.prod.yml    # Production compose
+├── env.development            # Local development / demo template
+├── env.example.production     # Production reference
 ├── package.json               # Root package.json
 └── README.md
 ```
@@ -219,14 +246,17 @@ gigachad-grc/
 
 ```bash
 # Start infrastructure only
-docker-compose up -d postgres redis keycloak minio traefik
+docker compose up -d postgres redis keycloak minio traefik
+
+# Build the shared library first — every service imports @gigachad-grc/shared
+npm run build:shared
 
 # Start services in watch mode (separate terminals)
-cd services/controls && npm run start:dev
-cd services/frameworks && npm run start:dev
-# ... repeat for other services
+cd services/controls && npm run start:dev      # :3001
+cd services/frameworks && npm run start:dev    # :3002
+# ... policies :3004, tprm :3005, trust :3006, audit :3007
 
-# Start frontend
+# Start frontend (Vite dev server on :3000)
 cd frontend && npm run dev
 ```
 
@@ -234,17 +264,22 @@ cd frontend && npm run dev
 
 - **Frontend**: Vite HMR (automatic)
 - **Backend**: NestJS watch mode (`npm run start:dev`)
-- **Database**: Prisma Studio (`npx prisma studio`)
+- **Database**: Prisma Studio (`npm run db:studio`)
 
 ### Environment Overrides
 
-Create `.env.local` for local overrides:
+`.env` is gitignored, so edit it directly and restart the affected services —
+nothing in this project reads `.env.local` for backend variables:
 
 ```bash
-# .env.local
+# .env
 LOG_LEVEL=debug
 RATE_LIMIT_ENABLED=false
 ```
+
+Frontend `VITE_*` variables can also go in `frontend/.env.local`, which Vite
+reads. Leave `VITE_API_URL` empty in development so the Vite dev server proxies
+each `/api/*` prefix to the service that owns it (`frontend/vite.config.ts`).
 
 ---
 
@@ -268,8 +303,8 @@ cd frontend
 # Development server
 npm run dev
 
-# Type checking
-npm run typecheck
+# Type checking (tsc, then build)
+npm run build:typecheck
 
 # Linting
 npm run lint
@@ -374,7 +409,8 @@ services/controls/
 │       └── prisma.module.ts
 │
 ├── prisma/
-│   └── schema.prisma        # Database schema
+│   └── migrations/         # Service-local migrations only — the schema is
+│                           # services/shared/prisma/schema.prisma
 │
 ├── package.json
 ├── tsconfig.json
@@ -463,31 +499,35 @@ export class NewFeatureService {
 
 ### Prisma Commands
 
+All commands run from the repository root against the one shared schema,
+`services/shared/prisma/schema.prisma`:
+
 ```bash
-cd services/controls
+# Push the schema to the database (creates/updates every table)
+npm run db:push
 
-# Generate Prisma Client
-npx prisma generate
+# Browse the data
+npm run db:studio
 
-# Create migration
-npx prisma migrate dev --name add_new_field
+# Generate Prisma Client (output: node_modules/.prisma/client)
+npx prisma generate --schema=services/shared/prisma/schema.prisma
 
-# Apply migrations (production)
-npx prisma migrate deploy
-
-# Reset database
-npx prisma migrate reset
-
-# Open Prisma Studio
-npx prisma studio
+# Start over: drop the volumes, then let the demo script recreate everything
+./scripts/stop-demo.sh --clean && ./scripts/start-demo.sh
 ```
+
+> The project has **no migration baseline** — `services/shared/prisma/migrations`
+> holds a single incremental migration against 129 models — so `prisma migrate dev`,
+> `prisma migrate deploy` and `prisma migrate reset` cannot build this database.
+> Schema changes are applied with `db push`.
 
 ### Schema Changes
 
-1. Modify `prisma/schema.prisma`
-2. Create migration: `npx prisma migrate dev --name description`
-3. Generate client: `npx prisma generate`
-4. Restart service
+1. Modify `services/shared/prisma/schema.prisma`
+2. Apply it: `npm run db:push`
+3. Generate client: `npx prisma generate --schema=services/shared/prisma/schema.prisma`
+4. Rebuild the shared library if types changed: `npm run build:shared`
+5. Restart the affected services
 
 ### Common Patterns
 
@@ -525,14 +565,17 @@ model Evidence {
 ```bash
 cd frontend
 
-# Run tests
+# Watch mode
 npm test
 
-# Watch mode
-npm test -- --watch
+# Single run
+npm run test:run
 
 # Coverage
-npm test -- --coverage
+npm run test:coverage
+
+# End-to-end (Playwright, needs the stack running)
+npm run test:e2e
 ```
 
 ### Backend Testing
@@ -543,8 +586,8 @@ cd services/controls
 # Unit tests
 npm test
 
-# E2E tests
-npm run test:e2e
+# Watch mode
+npm run test:watch
 
 # Coverage
 npm run test:cov
@@ -769,23 +812,27 @@ npx husky add .husky/pre-commit "npx lint-staged"
 
 ### Common Issues
 
-**Port already in use**:
+**Port already in use** (3000 frontend, 3001–3007 services, 5433 Postgres,
+6380 Redis, 8080 Keycloak, 9000/9001 MinIO):
 ```bash
-lsof -i :3000
+lsof -nP -iTCP:3000 -sTCP:LISTEN
 kill -9 <PID>
 ```
 
 **Docker issues**:
 ```bash
-docker-compose down -v
+docker compose down -v
 docker system prune -a
-docker-compose up -d --build
+docker compose up -d --build
 ```
+
+**HTTP 500 from every controls endpoint**: `.env` has `NODE_ENV=production`, so
+`DevAuthGuard` throws. Replace it with `env.development`.
 
 **Prisma issues**:
 ```bash
 rm -rf node_modules/.prisma
-npx prisma generate
+npx prisma generate --schema=services/shared/prisma/schema.prisma
 ```
 
 **Node modules issues**:
