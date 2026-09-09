@@ -20,9 +20,12 @@ FROM nginx:alpine AS production
 # Copy built assets
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-# Copy nginx config (path relative to context which is repo root)
-COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
+# Templates in /etc/nginx/templates are rendered by the nginx image's
+# entrypoint, which substitutes environment variables into them at start-up.
+COPY frontend/nginx.conf.template /etc/nginx/templates/default.conf.template
 
+# Platforms that inject PORT (Cloud Run, Render, Railway, Fly.io) override this.
+ENV PORT=3000
 EXPOSE 3000
 
 CMD ["nginx", "-g", "daemon off;"]
