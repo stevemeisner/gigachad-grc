@@ -39,7 +39,17 @@ services:
       - "5433:5432"  # Using 5433 externally to avoid conflicts
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./database/init:/docker-entrypoint-initdb.d
+      # Only ./database/bootstrap is mounted here. It creates the separate
+      # `keycloak` database and nothing else.
+      #
+      # ./database/init is deliberately NOT mounted: those scripts are
+      # incremental patches that ALTER tables owned by Prisma, so on a fresh
+      # volume the very first one (02-soft-delete-migration.sql) fails with
+      # `relation "controls" does not exist`. Postgres runs initdb scripts with
+      # ON_ERROR_STOP=1, so that aborted the whole container and left a
+      # half-initialised, table-less database behind. The application schema is
+      # created by `prisma db push` instead — see scripts/start-demo.sh.
+      - ./database/bootstrap:/docker-entrypoint-initdb.d:ro
     networks:
       - grc-network
     restart: unless-stopped
@@ -82,7 +92,11 @@ services:
     command: start-dev --import-realm
     environment:
       KC_DB: postgres
-      KC_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-gigachad_grc}
+      # Keycloak owns its own database, created by
+      # database/bootstrap/00-create-keycloak-db.sql. Sharing the application
+      # database would put ~90 Keycloak tables into the same `public` schema
+      # that Prisma manages, and `prisma db push` would then try to drop them.
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
       KC_DB_USERNAME: ${POSTGRES_USER:-grc}
       KC_DB_PASSWORD: ${POSTGRES_PASSWORD:-grc_secret}
       KC_HOSTNAME: ${KEYCLOAK_HOSTNAME:-localhost}
@@ -143,9 +157,9 @@ services:
       dockerfile: services/controls/Dockerfile
     container_name: grc-controls
     environment:
-      NODE_ENV: ${NODE_ENV:-development}
+      NODE_ENV: development
       PORT: 3001
-      DATABASE_URL: postgresql://${POSTGRES_USER:-grc}:${POSTGRES_PASSWORD:-grc_secret}@postgres:5432/grc_app_data
+      DATABASE_URL: postgresql://${POSTGRES_USER:-grc}:${POSTGRES_PASSWORD:-grc_secret}@postgres:5432/${POSTGRES_DB:-gigachad_grc}
       REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000
@@ -197,7 +211,7 @@ services:
     environment:
       NODE_ENV: development
       PORT: 3002
-      DATABASE_URL: postgresql://${POSTGRES_USER:-grc}:${POSTGRES_PASSWORD:-grc_secret}@postgres:5432/grc_app_data
+      DATABASE_URL: postgresql://${POSTGRES_USER:-grc}:${POSTGRES_PASSWORD:-grc_secret}@postgres:5432/${POSTGRES_DB:-gigachad_grc}
       REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000
@@ -239,7 +253,7 @@ services:
     environment:
       NODE_ENV: development
       PORT: 3004
-      DATABASE_URL: postgresql://${POSTGRES_USER:-grc}:${POSTGRES_PASSWORD:-grc_secret}@postgres:5432/grc_app_data
+      DATABASE_URL: postgresql://${POSTGRES_USER:-grc}:${POSTGRES_PASSWORD:-grc_secret}@postgres:5432/${POSTGRES_DB:-gigachad_grc}
       REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000
@@ -280,7 +294,7 @@ services:
     environment:
       NODE_ENV: development
       PORT: 3005
-      DATABASE_URL: postgresql://${POSTGRES_USER:-grc}:${POSTGRES_PASSWORD:-grc_secret}@postgres:5432/grc_app_data
+      DATABASE_URL: postgresql://${POSTGRES_USER:-grc}:${POSTGRES_PASSWORD:-grc_secret}@postgres:5432/${POSTGRES_DB:-gigachad_grc}
       REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000
@@ -324,7 +338,7 @@ services:
     environment:
       NODE_ENV: development
       PORT: 3006
-      DATABASE_URL: postgresql://${POSTGRES_USER:-grc}:${POSTGRES_PASSWORD:-grc_secret}@postgres:5432/grc_app_data
+      DATABASE_URL: postgresql://${POSTGRES_USER:-grc}:${POSTGRES_PASSWORD:-grc_secret}@postgres:5432/${POSTGRES_DB:-gigachad_grc}
       REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000
@@ -367,7 +381,7 @@ services:
     environment:
       NODE_ENV: development
       PORT: 3007
-      DATABASE_URL: postgresql://${POSTGRES_USER:-grc}:${POSTGRES_PASSWORD:-grc_secret}@postgres:5432/grc_app_data
+      DATABASE_URL: postgresql://${POSTGRES_USER:-grc}:${POSTGRES_PASSWORD:-grc_secret}@postgres:5432/${POSTGRES_DB:-gigachad_grc}
       REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000
