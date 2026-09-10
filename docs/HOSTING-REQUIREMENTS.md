@@ -167,12 +167,23 @@ re-verified against the repository.
 
 ## Still outstanding
 
-Two items, neither of which blocks a first single-VM deployment.
+Three items, none of which blocks a first single-VM deployment.
 
 | # | Work | Why it matters | Rough effort |
 |---|---|---|---|
 | 1 | Verify the sending domain in Resend | The provider is chosen and wired: `resend` is a first-class `EMAIL_PROVIDER` and `deploy/env.example` ships it. What remains is configuration in the existing Resend account — add the sending domain and publish the DNS records Resend gives you, create an API key scoped to it, then set `RESEND_API_KEY` and an `EMAIL_FROM` on that verified domain. Until the domain is verified Resend sends nothing, and a From address on any other domain is rejected on every send. `npm run validate:production` fails without the key or `EMAIL_FROM`, and the controls service refuses to start under `NODE_ENV=production` rather than logging emails instead of sending them | Minutes, plus DNS propagation |
 | 2 | Make more than one replica safe | Blocks horizontal scaling, nothing else, and the single-VM deployment runs one of each. `ThrottlerModule` (`services/controls/src/app.module.ts`) has no shared storage, so the effective rate limit would multiply by replica count, and the other five services register no throttler at all. Two schedulers in controls (`collectors.scheduler.ts`, `scheduled-notifications.service.ts`) run from `setInterval` and would fire once per replica. The fix is a PostgreSQL advisory lock per tick, not new infrastructure. `docker-compose.prod.yml` carries a comment where a `replicas` block would go | 1 day |
+| 3 | Collapse the two email systems into one | **Investigated, not yet fixed.** There are two: the env-driven `EmailService` (`services/controls/src/email/`), which is what sends real notifications and what `EMAIL_PROVIDER=resend` configures; and `ConfigurableEmailService` (`services/controls/src/notifications-config/`), which reads per-organization `NotificationConfiguration` rows written by the email section of `frontend/src/pages/Settings.tsx`. Verified by grep: the per-organization service is referenced only by its own module and by `POST /api/notifications-config/test-email`, so that configuration drives nothing that ever delivers a notification. Two consequences, both bad. The Settings email form configures a transport that never sends. And **Send test email** exercises that dead transport, not the live one — so with the per-org provider at its `"disabled"` default the button returns failure while real email works, and if configured it returns success while proving nothing. Same defect class as the three disagreeing role systems already consolidated here. The fix: point the test route at `EmailService`, delete `ConfigurableEmailService`, drop the per-organization email fields from `NotificationConfiguration` in `services/shared/prisma/schema.prisma` (free — the production database is created by `prisma db push` and has never run anywhere), and remove the provider picker from Settings. Check separately whether the adjacent Slack configuration is real or the same kind of dead path. `docs/PRODUCTION_DEPLOYMENT.md` lines 159-164 currently assert both paths deliver; they do not | Half a day |
+
+In plainer terms, item 2: the application does a few things on a timer —
+checking integrations, sending scheduled notification digests. Each copy of
+the application runs its own timer, and nothing stops two copies from doing
+the same job at the same moment, so you would get duplicate emails and
+duplicate work. The single-VM deployment runs exactly one copy, so this
+cannot happen today. It only becomes a problem the day somebody runs a second
+copy for extra capacity. The fix is to have each copy ask the database "am I
+the one doing this tick?" before it starts — a PostgreSQL advisory lock, which
+is a lock the database already knows how to hand out. No new software.
 
 Smaller things a reviewer should know about, none of them blocking:
 
