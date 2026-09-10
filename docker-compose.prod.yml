@@ -235,10 +235,11 @@ services:
       # anything touching a stored integration credential fails without it.
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       CORS_ORIGINS: ${CORS_ORIGINS}
-      # Only this service sends mail (src/email/email.service.ts). Without
-      # these the service silently falls back to logging emails instead of
-      # sending them, whatever .env.prod says.
-      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-console}
+      # Only this service sends mail (src/email/email.service.ts). Without the
+      # variables its EMAIL_PROVIDER needs, the service refuses to start under
+      # NODE_ENV=production rather than quietly logging emails instead of
+      # sending them.
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER}
       EMAIL_FROM: ${EMAIL_FROM:-}
       EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-}
       SMTP_HOST: ${SMTP_HOST:-}
@@ -246,6 +247,7 @@ services:
       SMTP_SECURE: ${SMTP_SECURE:-false}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
       SENDGRID_API_KEY: ${SENDGRID_API_KEY:-}
       AWS_REGION: ${AWS_REGION:-}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}

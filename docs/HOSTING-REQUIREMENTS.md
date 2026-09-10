@@ -161,7 +161,7 @@ re-verified against the repository.
 | `VITE_ALLOWED_EMAIL_DOMAIN` could never take effect | `ARG` in `frontend/Dockerfile` and a build arg in `docker-compose.prod.yml`, verified present in rendered `docker compose config` output |
 | `ENCRYPTION_KEY`, `CORS_ORIGINS` and the whole email configuration reached no container | Forwarded: the first two to all six services, the email block to `controls`, which is the only service that sends mail |
 | `deploy/env.example` advertised `BACKUP_S3_*` variables that no code reads | Corrected to the `DR_REMOTE_BACKUP_*` names `deploy/backup.sh` actually reads. An operator following the template would have configured nothing |
-| Email misconfiguration failed silently | Every incomplete provider config fell back to console logging with only a `logger.warn`, and an unrecognised `EMAIL_PROVIDER` value silently became `smtp`. `validate:production` now fails on console-in-production, on a missing provider variable, and on an unrecognised provider name |
+| Email misconfiguration failed silently | Every incomplete provider config fell back to console logging with only a `logger.warn`, and an unrecognised `EMAIL_PROVIDER` value silently became `smtp`. The service now **refuses to start** under `NODE_ENV=production` on any incomplete or unrecognised provider configuration, and `validate:production` catches the same cases before deployment |
 
 ---
 
@@ -171,7 +171,7 @@ Two items, neither of which blocks a first single-VM deployment.
 
 | # | Work | Why it matters | Rough effort |
 |---|---|---|---|
-| 1 | Choose and configure an email provider | `deploy/env.example` ships `EMAIL_PROVIDER=console`, which writes notification emails to the container log instead of sending them. `npm run validate:production` now refuses to pass with that combination under `NODE_ENV=production`, so it cannot be missed — but somebody still has to pick `smtp`, `sendgrid` or `ses` and supply its credentials. This is a decision plus an account, not development work | 1 hour, plus a provider account |
+| 1 | Verify the sending domain in Resend | The provider is chosen and wired: `resend` is a first-class `EMAIL_PROVIDER` and `deploy/env.example` ships it. What remains is configuration in the existing Resend account — add the sending domain and publish the DNS records Resend gives you, create an API key scoped to it, then set `RESEND_API_KEY` and an `EMAIL_FROM` on that verified domain. Until the domain is verified Resend sends nothing, and a From address on any other domain is rejected on every send. `npm run validate:production` fails without the key or `EMAIL_FROM`, and the controls service refuses to start under `NODE_ENV=production` rather than logging emails instead of sending them | Minutes, plus DNS propagation |
 | 2 | Make more than one replica safe | Blocks horizontal scaling, nothing else, and the single-VM deployment runs one of each. `ThrottlerModule` (`services/controls/src/app.module.ts`) has no shared storage, so the effective rate limit would multiply by replica count, and the other five services register no throttler at all. Two schedulers in controls (`collectors.scheduler.ts`, `scheduled-notifications.service.ts`) run from `setInterval` and would fire once per replica. The fix is a PostgreSQL advisory lock per tick, not new infrastructure. `docker-compose.prod.yml` carries a comment where a `replicas` block would go | 1 day |
 
 Smaller things a reviewer should know about, none of them blocking:

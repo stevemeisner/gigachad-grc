@@ -110,9 +110,12 @@ it — see [Configuration](./CONFIGURATION.md#minio-configuration).
 ### Email
 
 ```bash
-EMAIL_PROVIDER=console                # console | smtp | sendgrid | ses; unset means smtp
-EMAIL_FROM=noreply@yourcompany.com
+EMAIL_PROVIDER=resend                 # resend | console | smtp | sendgrid | ses; unset means smtp
+EMAIL_FROM=noreply@yourcompany.com    # required unless the provider is console
 EMAIL_FROM_NAME=GigaChad GRC
+
+# EMAIL_PROVIDER=resend
+RESEND_API_KEY=re_...                 # host, port and username are fixed in the service
 
 # EMAIL_PROVIDER=smtp
 SMTP_HOST=smtp.yourprovider.com
@@ -130,9 +133,13 @@ AWS_ACCESS_KEY_ID=...
 AWS_SECRET_ACCESS_KEY=...
 ```
 
-The variable is `SMTP_PASS`, not `SMTP_PASSWORD`. If the selected provider's
-configuration is incomplete, the email service silently falls back to console
-mode: messages are logged and never sent.
+The variable is `SMTP_PASS`, not `SMTP_PASSWORD`. An unrecognised
+`EMAIL_PROVIDER`, or a selected provider whose configuration is incomplete,
+makes the email service refuse to start under `NODE_ENV=production`. Outside
+production it falls back to console mode: messages are logged and never sent.
+
+Resend sends nothing until a sending domain is verified in its dashboard, and
+`EMAIL_FROM` must be an address on that domain.
 
 ### Security
 

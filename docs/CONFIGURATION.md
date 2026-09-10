@@ -158,20 +158,21 @@ burst-100 middleware to the gateway router. `RATE_LIMIT_MAX` and
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `EMAIL_PROVIDER` | No | `smtp` | `console`, `smtp`, `sendgrid` or `ses`. `console` logs each message instead of sending it |
-| `EMAIL_FROM` | No | `noreply@gigachad-grc.com` | From address |
+| `EMAIL_PROVIDER` | No | `smtp` | `resend`, `console`, `smtp`, `sendgrid` or `ses`. `console` logs each message instead of sending it |
+| `EMAIL_FROM` | With any provider except `console` | - | From address. There is no default; with `resend` it must be on your verified domain |
 | `EMAIL_FROM_NAME` | No | `GigaChad GRC` | From display name |
+| `RESEND_API_KEY` | With `EMAIL_PROVIDER=resend` | - | Resend API key, `re_` prefix included. Host, port and username are fixed in the service |
 | `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS` | With `EMAIL_PROVIDER=smtp` | - | SMTP server and credentials |
 | `SMTP_PORT` | No | `587` | SMTP port |
 | `SMTP_SECURE` | No | `false` | Use an implicit TLS connection |
 | `SENDGRID_API_KEY` | With `EMAIL_PROVIDER=sendgrid` | - | SendGrid API key |
 | `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | With `EMAIL_PROVIDER=ses` | `us-east-1` for the region | SES credentials |
 
-> An unset `EMAIL_PROVIDER` means `smtp`, and an unrecognised value is
-> treated as `smtp` as well. If the selected provider's configuration is
-> incomplete, the email service falls back to console mode: messages are
-> written to the log and never sent, without raising an error.
-> `npm run validate:production` checks for that combination.
+> An unset `EMAIL_PROVIDER` means `smtp`. An unrecognised value, or a
+> selected provider whose configuration is incomplete, makes the email
+> service refuse to start under `NODE_ENV=production`; outside production it
+> falls back to console mode, where messages are written to the log and never
+> sent. `npm run validate:production` catches both before you deploy.
 
 #### AI (Optional)
 

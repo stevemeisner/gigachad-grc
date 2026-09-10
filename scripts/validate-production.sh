@@ -421,21 +421,21 @@ section "Email Delivery"
 # services/controls/src/email/email.service.ts chooses the transport from
 # EMAIL_PROVIDER. Two things about it drive the checks below:
 #
-#   1. An unset EMAIL_PROVIDER defaults to 'smtp', and ANY unrecognised value
-#      also lands in the smtp branch.
+#   1. An unset EMAIL_PROVIDER defaults to 'smtp'. An unrecognised value is
+#      its own failure - the service no longer treats a typo as 'smtp'.
 #   2. When the selected provider's configuration is incomplete the service
-#      does not fail - it falls back to console mode, which logs the message
-#      and never sends it. A missing SMTP password therefore looks like a
-#      working deployment until someone asks why no one got their email.
+#      refuses to start under NODE_ENV=production, and falls back to console
+#      mode everywhere else. Refusing to start is loud, but it is loud at
+#      container start, after the deploy.
 #
-# So these checks are the only place that failure is loud.
+# So these checks are where that failure is cheap.
 EMAIL_PROVIDER_VALUE="${EMAIL_PROVIDER:-smtp}"
 
 case "$EMAIL_PROVIDER_VALUE" in
     console)
         if [ "${NODE_ENV:-development}" = "production" ]; then
             fail "EMAIL_PROVIDER=console with NODE_ENV=production - notification emails are written to the container log and never sent" \
-                 "Set EMAIL_PROVIDER to smtp, sendgrid or ses and fill in its variables"
+                 "Set EMAIL_PROVIDER to resend, smtp, sendgrid or ses and fill in its variables"
         else
             pass "EMAIL_PROVIDER=console (emails are logged, not sent - acceptable outside production)"
         fi
@@ -443,17 +443,17 @@ case "$EMAIL_PROVIDER_VALUE" in
     smtp)
         SMTP_COMPLETE=true
         if [ -z "${SMTP_HOST:-}" ]; then
-            fail "EMAIL_PROVIDER=smtp but SMTP_HOST is not set - the email service falls back to logging instead of sending" \
+            fail "EMAIL_PROVIDER=smtp but SMTP_HOST is not set - the email service refuses to start in production, and logs instead of sending everywhere else" \
                  "Set SMTP_HOST, or choose another EMAIL_PROVIDER"
             SMTP_COMPLETE=false
         fi
         if [ -z "${SMTP_USER:-}" ]; then
-            fail "EMAIL_PROVIDER=smtp but SMTP_USER is not set - the email service falls back to logging instead of sending" \
+            fail "EMAIL_PROVIDER=smtp but SMTP_USER is not set - the email service refuses to start in production, and logs instead of sending everywhere else" \
                  "Set SMTP_USER, or choose another EMAIL_PROVIDER"
             SMTP_COMPLETE=false
         fi
         if [ -z "${SMTP_PASS:-}" ]; then
-            fail "EMAIL_PROVIDER=smtp but SMTP_PASS is not set - the email service falls back to logging instead of sending" \
+            fail "EMAIL_PROVIDER=smtp but SMTP_PASS is not set - the email service refuses to start in production, and logs instead of sending everywhere else" \
                  "Set SMTP_PASS, or choose another EMAIL_PROVIDER"
             SMTP_COMPLETE=false
         fi
@@ -465,9 +465,19 @@ case "$EMAIL_PROVIDER_VALUE" in
             pass "SMTP delivery configured (host, user and password all set)"
         fi
         ;;
+    resend)
+        # The API key is the only Resend variable: the host, the port and the
+        # username ('resend', literally) are fixed in the service.
+        if [ -z "${RESEND_API_KEY:-}" ]; then
+            fail "EMAIL_PROVIDER=resend but RESEND_API_KEY is not set - the email service refuses to start in production, and logs instead of sending everywhere else" \
+                 "Set RESEND_API_KEY to a key from the Resend dashboard, or choose another EMAIL_PROVIDER"
+        else
+            pass "Resend delivery configured (RESEND_API_KEY is set)"
+        fi
+        ;;
     sendgrid)
         if [ -z "${SENDGRID_API_KEY:-}" ]; then
-            fail "EMAIL_PROVIDER=sendgrid but SENDGRID_API_KEY is not set - the email service falls back to logging instead of sending" \
+            fail "EMAIL_PROVIDER=sendgrid but SENDGRID_API_KEY is not set - the email service refuses to start in production, and logs instead of sending everywhere else" \
                  "Set SENDGRID_API_KEY, or choose another EMAIL_PROVIDER"
         else
             pass "SendGrid delivery configured (SENDGRID_API_KEY is set)"
@@ -483,7 +493,7 @@ case "$EMAIL_PROVIDER_VALUE" in
             SES_COMPLETE=false
         fi
         if [ -z "${AWS_ACCESS_KEY_ID:-}" ] || [ -z "${AWS_SECRET_ACCESS_KEY:-}" ]; then
-            fail "EMAIL_PROVIDER=ses but AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY are incomplete - the email service falls back to logging instead of sending" \
+            fail "EMAIL_PROVIDER=ses but AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY are incomplete - the email service refuses to start in production, and logs instead of sending everywhere else" \
                  "Set both SES SMTP credentials, or choose another EMAIL_PROVIDER"
             SES_COMPLETE=false
         fi
@@ -492,10 +502,25 @@ case "$EMAIL_PROVIDER_VALUE" in
         fi
         ;;
     *)
-        fail "EMAIL_PROVIDER='$EMAIL_PROVIDER_VALUE' is not a recognised provider - the email service treats anything unrecognised as 'smtp'" \
-             "Use console, smtp, sendgrid or ses"
+        fail "EMAIL_PROVIDER='$EMAIL_PROVIDER_VALUE' is not a recognised provider - the email service refuses to start on a value it does not know" \
+             "Use console, smtp, resend, sendgrid or ses"
         ;;
 esac
+
+# EMAIL_FROM stopped being optional. Resend rejects any From address outside a
+# verified domain, and the service no longer defaults to a placeholder domain
+# that nobody owns, so a real provider with no EMAIL_FROM sends nothing.
+if [ "$EMAIL_PROVIDER_VALUE" != "console" ]; then
+    if [ -n "${EMAIL_FROM:-}" ]; then
+        pass "EMAIL_FROM is set ($EMAIL_FROM)"
+    elif [ "${NODE_ENV:-development}" = "production" ]; then
+        fail "EMAIL_PROVIDER=$EMAIL_PROVIDER_VALUE but EMAIL_FROM is not set - the email service refuses to start without a sender address" \
+             "Set EMAIL_FROM to an address on a domain your provider is allowed to send from"
+    else
+        warn "EMAIL_PROVIDER=$EMAIL_PROVIDER_VALUE but EMAIL_FROM is not set - the email service falls back to logging outside production" \
+             "Set EMAIL_FROM before deploying with NODE_ENV=production"
+    fi
+fi
 
 ################################################################################
 # File System Checks

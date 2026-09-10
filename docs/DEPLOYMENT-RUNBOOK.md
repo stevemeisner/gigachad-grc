@@ -280,12 +280,27 @@ Now edit `.env.prod`. These are the variables you must set:
 | `CORS_ORIGINS` | Browser origins allowed to call the API | `https://grc.example.com` — with the scheme, no trailing slash |
 | `LOG_LEVEL` | `info` is right for production | Already set |
 | `BACKUP_RETENTION_DAYS` | How long backups are kept | `30` is the shipped default |
-| `EMAIL_PROVIDER` | `console`, `smtp`, `sendgrid` or `ses` | Choose a real one before deploying. `npm run validate:production` **fails** on `console` when `NODE_ENV=production`, because notifications are then written to the container log and never sent |
-| `SMTP_*` / `SENDGRID_API_KEY` / `AWS_*` | Whichever set the provider above needs | See the comments in `deploy/env.example` |
+| `EMAIL_PROVIDER` | `resend`, `console`, `smtp`, `sendgrid` or `ses` | Ships as `resend`. `npm run validate:production` **fails** on `console` when `NODE_ENV=production`, because notifications are then written to the container log and never sent |
+| `EMAIL_FROM` | Sender address for every outgoing email | Required unless the provider is `console`. With `resend` it must be on your verified domain |
+| `RESEND_API_KEY` / `SMTP_*` / `SENDGRID_API_KEY` / `AWS_*` | Whichever set the provider above needs | See the comments in `deploy/env.example` |
 
 Every `CHANGE_ME_*` placeholder must be replaced. `npm run validate:production`
 fails on any that survive: they are longer than the minimum secret length, so
 a copied-but-unedited file would otherwise report its secrets as valid.
+
+Setting up Resend, the shipped provider, in the existing Resend account:
+
+1. Add your sending domain and publish the DNS records Resend gives you.
+   Resend sends nothing until the domain shows as verified.
+2. Create an API key scoped to that domain and copy it, `re_` prefix
+   included.
+3. Set `RESEND_API_KEY` to that key and `EMAIL_FROM` to an address on the
+   verified domain. A From address on any other domain is rejected on every
+   send.
+
+The controls service refuses to start under `NODE_ENV=production` if the
+provider you chose is missing a variable it needs, so a typo here stops the
+deployment instead of quietly swallowing every notification.
 
 > ⚠️ **Never set `AUTH_MODE=demo` here.** It is the single authentication
 > bypass in the system and serves every request as the seeded demo

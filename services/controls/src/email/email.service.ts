@@ -33,12 +33,26 @@ export class EmailService {
       return;
     }
 
+    // Every provider below hands the message to somebody who checks the
+    // sender. Resend rejects any From address outside a verified domain, so
+    // an unset EMAIL_FROM is a broken deployment rather than a detail worth
+    // defaulting.
+    if (!this.configService.get<string>('EMAIL_FROM')) {
+      this.refuseOrFallBackToConsole(
+        `EMAIL_PROVIDER=${emailProvider} is set but EMAIL_FROM is not.`,
+        'Set EMAIL_FROM to an address your provider is allowed to send from.',
+      );
+      return;
+    }
+
     if (emailProvider === 'sendgrid') {
       // SendGrid configuration
       const apiKey = this.configService.get<string>('SENDGRID_API_KEY');
       if (!apiKey) {
-        this.logger.warn('SENDGRID_API_KEY not configured, falling back to console mode');
-        this.initializeConsoleMode();
+        this.refuseOrFallBackToConsole(
+          'EMAIL_PROVIDER=sendgrid is set but SENDGRID_API_KEY is not.',
+          'Set SENDGRID_API_KEY, or choose another EMAIL_PROVIDER.',
+        );
         return;
       }
 
@@ -59,8 +73,10 @@ export class EmailService {
       const secretAccessKey = this.configService.get<string>('AWS_SECRET_ACCESS_KEY');
 
       if (!accessKeyId || !secretAccessKey) {
-        this.logger.warn('AWS credentials not configured, falling back to console mode');
-        this.initializeConsoleMode();
+        this.refuseOrFallBackToConsole(
+          'EMAIL_PROVIDER=ses is set but AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are not both present.',
+          'Set both SES SMTP credentials, or choose another EMAIL_PROVIDER.',
+        );
         return;
       }
 
@@ -74,7 +90,32 @@ export class EmailService {
         },
       });
       this.logger.log('Email service initialized with AWS SES');
-    } else {
+    } else if (emailProvider === 'resend') {
+      // Resend configuration. Resend speaks plain SMTP, so it needs no SDK.
+      // The username is the literal string 'resend' for every account - it is
+      // not an email address - and the password is the API key including its
+      // re_ prefix. Port 465 with implicit TLS is Resend's own recommendation;
+      // 587 would mean STARTTLS, one more thing to get wrong.
+      const apiKey = this.configService.get<string>('RESEND_API_KEY');
+      if (!apiKey) {
+        this.refuseOrFallBackToConsole(
+          'EMAIL_PROVIDER=resend is set but RESEND_API_KEY is not.',
+          'Set RESEND_API_KEY to a key from the Resend dashboard, or choose another EMAIL_PROVIDER.',
+        );
+        return;
+      }
+
+      this.transporter = nodemailer.createTransport({
+        host: 'smtp.resend.com',
+        port: 465,
+        secure: true,
+        auth: {
+          user: 'resend',
+          pass: apiKey,
+        },
+      });
+      this.logger.log('Email service initialized with Resend');
+    } else if (emailProvider === 'smtp') {
       // Generic SMTP configuration
       const host = this.configService.get<string>('SMTP_HOST');
       const port = this.configService.get<number>('SMTP_PORT', 587);
@@ -83,8 +124,10 @@ export class EmailService {
       const pass = this.configService.get<string>('SMTP_PASS');
 
       if (!host || !user || !pass) {
-        this.logger.warn('SMTP credentials not configured, falling back to console mode');
-        this.initializeConsoleMode();
+        this.refuseOrFallBackToConsole(
+          'EMAIL_PROVIDER=smtp is set but SMTP_HOST, SMTP_USER and SMTP_PASS are not all present.',
+          'Set all three, or choose another EMAIL_PROVIDER.',
+        );
         return;
       }
 
@@ -98,7 +141,37 @@ export class EmailService {
         },
       });
       this.logger.log('Email service initialized with SMTP');
+    } else {
+      // An unrecognised value used to fall through to the SMTP branch, so a
+      // typo was indistinguishable from a deliberate choice.
+      this.refuseOrFallBackToConsole(
+        `EMAIL_PROVIDER='${emailProvider}' is not a provider this service knows.`,
+        'Use console, smtp, sendgrid, ses or resend.',
+      );
     }
+  }
+
+  /**
+   * Incomplete configuration used to mean a logger.warn and a silent switch to
+   * console mode. In production that is how notification emails disappear into
+   * the container log for weeks while every send reports success. Refuse to
+   * start instead. Outside production the old fallback is still what you want.
+   */
+  private refuseOrFallBackToConsole(problem: string, action: string): void {
+    const nodeEnv = this.configService.get<string>('NODE_ENV', 'development');
+
+    if (nodeEnv === 'production') {
+      throw new Error(
+        `EMAIL CONFIGURATION ERROR: ${problem} ` +
+          'Under NODE_ENV=production this service will not fall back to writing ' +
+          `messages to the log instead of sending them. ${action}`,
+      );
+    }
+
+    this.logger.warn(
+      `${problem} Falling back to console mode: emails are logged, not sent.`,
+    );
+    this.initializeConsoleMode();
   }
 
   private initializeConsoleMode(): void {
@@ -112,7 +185,11 @@ export class EmailService {
 
   async sendEmail(options: EmailOptions): Promise<boolean> {
     try {
-      const from = this.configService.get<string>('EMAIL_FROM', 'noreply@gigachad-grc.com');
+      // No real-domain default: a From address the operator never configured
+      // is rejected by Resend and silently dropped by others. Anything but
+      // console mode has already required EMAIL_FROM in initializeTransporter,
+      // so this fallback is only ever reachable when nothing is being sent.
+      const from = this.configService.get<string>('EMAIL_FROM', 'noreply@localhost');
       const fromName = this.configService.get<string>('EMAIL_FROM_NAME', 'GigaChad GRC');
 
       const mailOptions = {
