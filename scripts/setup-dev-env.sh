@@ -68,8 +68,6 @@ else
     
     # Generate secrets
     ENCRYPTION_KEY=$(openssl rand -hex 32)
-    JWT_SECRET=$(openssl rand -base64 64 | tr -d '\n')
-    SESSION_SECRET=$(openssl rand -base64 64 | tr -d '\n')
     POSTGRES_PASSWORD=$(openssl rand -base64 24 | tr -d '\n' | tr '+/' '-_')
     MINIO_PASSWORD=$(openssl rand -base64 20 | tr -d '\n' | tr '+/' '-_')
     
@@ -84,9 +82,10 @@ else
 NODE_ENV=development
 
 # Security Secrets
+# ENCRYPTION_KEY encrypts stored integration credentials. It is the only
+# secret the application holds: sign-in is Firebase, and its RS256 ID tokens
+# are verified against Google's JWKS rather than with a local signing key.
 ENCRYPTION_KEY=${ENCRYPTION_KEY}
-JWT_SECRET=${JWT_SECRET}
-SESSION_SECRET=${SESSION_SECRET}
 
 # Database
 POSTGRES_USER=grc

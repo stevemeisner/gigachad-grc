@@ -170,28 +170,6 @@ export class SystemHealthService {
           : undefined,
     });
 
-    // Check JWT secret
-    const jwtSecret = process.env.JWT_SECRET || '';
-    checks.push({
-      id: 'security-jwt-secret',
-      name: 'JWT Secret',
-      category: CheckCategory.SECURITY,
-      status:
-        !jwtSecret || jwtSecret.length < 32
-          ? nodeEnv === 'production'
-            ? HealthStatus.CRITICAL
-            : HealthStatus.WARNING
-          : HealthStatus.HEALTHY,
-      message:
-        !jwtSecret || jwtSecret.length < 32
-          ? 'JWT secret is missing or too short'
-          : 'JWT secret is properly configured',
-      recommendation:
-        !jwtSecret || jwtSecret.length < 32
-          ? 'Generate a strong JWT secret using: openssl rand -base64 64'
-          : undefined,
-    });
-
     return checks;
   }
 
@@ -450,28 +428,6 @@ export class SystemHealthService {
         ? 'Set ALLOWED_EMAIL_DOMAINS to your company domain'
         : undefined,
       documentationUrl: '/docs/DEPLOYMENT-RUNBOOK.md',
-    });
-
-    // Check session configuration
-    const sessionSecret = process.env.SESSION_SECRET || '';
-    checks.push({
-      id: 'auth-session-secret',
-      name: 'Session Secret',
-      category: CheckCategory.AUTHENTICATION,
-      status:
-        sessionSecret.length >= 32
-          ? HealthStatus.HEALTHY
-          : nodeEnv === 'production'
-            ? HealthStatus.CRITICAL
-            : HealthStatus.WARNING,
-      message:
-        sessionSecret.length >= 32
-          ? 'Session secret is properly configured'
-          : 'Session secret is missing or too short',
-      recommendation:
-        sessionSecret.length < 32
-          ? 'Generate a strong session secret: openssl rand -base64 64'
-          : undefined,
     });
 
     return checks;

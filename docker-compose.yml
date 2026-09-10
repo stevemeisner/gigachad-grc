@@ -110,10 +110,8 @@ services:
       ALLOWED_EMAIL_DOMAINS: ${ALLOWED_EMAIL_DOMAINS:-}
       AUTH_AUTO_PROVISION: ${AUTH_AUTO_PROVISION:-false}
       AUTH_DEFAULT_ORG_ID: ${AUTH_DEFAULT_ORG_ID:-}
-      # Security secrets
+      # Encrypts stored integration credentials (AES-256-GCM)
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
-      JWT_SECRET: ${JWT_SECRET:-}
-      SESSION_SECRET: ${SESSION_SECRET:-}
       # Backup configuration
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
       DR_REMOTE_BACKUP_ENABLED: ${DR_REMOTE_BACKUP_ENABLED:-false}
