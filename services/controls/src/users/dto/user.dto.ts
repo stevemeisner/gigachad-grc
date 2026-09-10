@@ -1,8 +1,15 @@
 import { IsString, IsOptional, IsArray, IsEnum, IsEmail } from 'class-validator';
 
 export class CreateUserDto {
+  /**
+   * The person's Firebase subject id. Optional, because it does not exist
+   * until they have signed in at least once. Supply it only when the account
+   * is already in Firebase and the id is at hand; otherwise the row is created
+   * with a placeholder and claimed on first Google sign-in.
+   */
+  @IsOptional()
   @IsString()
-  externalId: string;
+  externalId?: string;
 
   @IsEmail()
   email: string;
@@ -86,7 +93,12 @@ export class UserFilterDto {
 
 export class UserResponseDto {
   id: string;
-  externalId: string;
+  /**
+   * The Firebase subject id, omitted while the account still carries its
+   * pre-provisioning placeholder — a placeholder is not an identifier and
+   * must not be presented as one.
+   */
+  externalId?: string;
   email: string;
   firstName: string;
   lastName: string;
@@ -94,6 +106,11 @@ export class UserResponseDto {
   role: string;
   status: string;
   lastLoginAt?: Date;
+  /**
+   * False until the account has been claimed by a real Google sign-in. An
+   * account created by an administrator starts out false.
+   */
+  hasSignedIn: boolean;
   groups: { id: string; name: string }[];
   createdAt: Date;
   updatedAt: Date;

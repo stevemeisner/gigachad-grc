@@ -32,11 +32,18 @@ export type SortOrder = 'asc' | 'desc';
 // User Types
 // ===========================================
 
-export type UserRole = 'admin' | 'editor' | 'viewer' | 'auditor';
-export type UserStatus = 'active' | 'inactive' | 'pending';
+/** Mirrors the `UserRole` enum in `services/shared/prisma/schema.prisma`. */
+export type UserRole = 'admin' | 'compliance_manager' | 'auditor' | 'viewer';
+/** Mirrors the `UserStatus` enum. Note there is no pending status: an account
+ *  awaiting its first sign-in is `active` with `hasSignedIn` false. */
+export type UserStatus = 'active' | 'inactive' | 'suspended';
 
 export interface User {
   id: string;
+  /** The Firebase subject id. Absent until a first Google sign-in claims it. */
+  externalId?: string;
+  /** False for an account created by an administrator that nobody has used yet. */
+  hasSignedIn?: boolean;
   email: string;
   firstName: string;
   lastName: string;
@@ -56,6 +63,11 @@ export interface CreateUserData {
   firstName: string;
   lastName: string;
   role?: UserRole;
+  /**
+   * Only when the person is already in Firebase and their subject id is at
+   * hand. Left out, the account waits for its first Google sign-in.
+   */
+  externalId?: string;
 }
 
 export interface UpdateUserData {
@@ -71,6 +83,14 @@ export interface UserListParams extends PaginationParams {
   status?: UserStatus;
   role?: UserRole;
   groupId?: string;
+}
+
+/** The shape `GET /api/users` returns. Note `users`, not `data`. */
+export interface UserListResponse {
+  users: User[];
+  total: number;
+  page: number;
+  limit: number;
 }
 
 // ===========================================

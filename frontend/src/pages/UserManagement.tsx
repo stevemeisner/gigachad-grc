@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   MagnifyingGlassIcon,
@@ -7,9 +7,12 @@ import {
   XMarkIcon,
   CheckIcon,
   NoSymbolIcon,
+  PlusIcon,
+  ClockIcon,
 } from '@heroicons/react/24/outline';
+import axios from 'axios';
 import { usersApi, permissionsApi } from '../lib/api';
-import { UserStatus, UserRole, PermissionGroup } from '../lib/apiTypes';
+import { CreateUserData, UserStatus, UserRole, PermissionGroup } from '../lib/apiTypes';
 import toast from 'react-hot-toast';
 
 interface User {
@@ -22,9 +25,18 @@ interface User {
   role: UserRole;
   status: UserStatus;
   lastLoginAt?: string;
+  /** False until this account is claimed by its owner's first Google sign-in. */
+  hasSignedIn?: boolean;
   groups?: { id: string; name: string }[];
   createdAt: string;
 }
+
+/**
+ * Rows per page, matching the paged table on the Assets page. Deliberately well
+ * under `USER_LIST_MAX_LIMIT` -- this table pages, so it has no reason to pull
+ * the server's maximum in one go.
+ */
+const USERS_PAGE_SIZE = 25;
 
 export default function UserManagement() {
   const queryClient = useQueryClient();
@@ -34,14 +46,19 @@ export default function UserManagement() {
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [showPermissionsModal, setShowPermissionsModal] = useState(false);
   const [showGroupsModal, setShowGroupsModal] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [page, setPage] = useState(1);
 
-  // Fetch users
+  // Fetch users. The limit is explicit: relying on the endpoint's default of 50
+  // is what silently hid colleagues past the 50th from the administrator.
   const { data: usersData, isLoading: usersLoading } = useQuery({
-    queryKey: ['users', search, statusFilter, roleFilter],
-    queryFn: () => usersApi.list({ 
-      search, 
-      status: statusFilter as UserStatus || undefined, 
-      role: roleFilter as UserRole || undefined 
+    queryKey: ['users', search, statusFilter, roleFilter, page],
+    queryFn: () => usersApi.list({
+      search,
+      status: statusFilter as UserStatus || undefined,
+      role: roleFilter as UserRole || undefined,
+      page,
+      limit: USERS_PAGE_SIZE,
     }).then(res => res.data),
   });
 
@@ -101,7 +118,18 @@ export default function UserManagement() {
     onError: () => toast.error('Failed to remove user from group'),
   });
 
-  const users = usersData?.data || [];
+  const users = usersData?.users || [];
+  // The real server-side count for the current filters -- not `users.length`,
+  // which is only the size of the page in hand.
+  const total = usersData?.total ?? 0;
+  const isLastPage = page * USERS_PAGE_SIZE >= total;
+  // Deactivating or creating a user (or a narrowing filter) can shrink the result
+  // set under our feet; don't strand the administrator on a page past the end.
+  useEffect(() => {
+    if (!usersLoading && total > 0 && users.length === 0 && page > 1) {
+      setPage(Math.ceil(total / USERS_PAGE_SIZE));
+    }
+  }, [usersLoading, total, users.length, page]);
   const groups: PermissionGroup[] = groupsData || [];
 
   const getStatusBadgeClass = (status: string) => {
@@ -136,6 +164,13 @@ export default function UserManagement() {
           <h1 className="text-2xl font-bold text-white">User Management</h1>
           <p className="text-surface-400 mt-1">Manage users, roles, and permissions</p>
         </div>
+        <button
+          onClick={() => setShowCreateModal(true)}
+          className="flex items-center gap-2 bg-brand-500 hover:bg-brand-600 text-white px-4 py-2 rounded-lg transition-colors"
+        >
+          <PlusIcon className="w-5 h-5" />
+          Add User
+        </button>
       </div>
 
       {/* Stats Cards */}
@@ -168,14 +203,14 @@ export default function UserManagement() {
                 type="text"
                 placeholder="Search users by name or email..."
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => { setSearch(e.target.value); setPage(1); }}
                 className="w-full bg-surface-900 border border-surface-600 rounded-lg pl-10 pr-4 py-2 text-white placeholder:text-surface-500 focus:outline-none focus:ring-2 focus:ring-brand-500"
               />
             </div>
           </div>
           <select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
+            onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
             className="bg-surface-900 border border-surface-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-brand-500"
           >
             <option value="">All Statuses</option>
@@ -184,7 +219,7 @@ export default function UserManagement() {
           </select>
           <select
             value={roleFilter}
-            onChange={(e) => setRoleFilter(e.target.value)}
+            onChange={(e) => { setRoleFilter(e.target.value); setPage(1); }}
             className="bg-surface-900 border border-surface-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-brand-500"
           >
             <option value="">All Roles</option>
@@ -233,6 +268,15 @@ export default function UserManagement() {
                       <div>
                         <div className="text-white font-medium">{user.displayName}</div>
                         <div className="text-surface-400 text-sm">{user.email}</div>
+                        {!user.hasSignedIn && (
+                          <div className="flex items-start gap-1.5 text-amber-400 text-xs mt-1 max-w-md">
+                            <ClockIcon className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                            <span>
+                              Created, but has not signed in yet. They will be linked on their
+                              first Google sign-in.
+                            </span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </td>
@@ -316,6 +360,32 @@ export default function UserManagement() {
             )}
           </tbody>
         </table>
+
+        {/* Pagination */}
+        {total > 0 && (
+          <div className="px-4 py-3 border-t border-surface-700 flex items-center justify-between">
+            <p className="text-sm text-surface-400">
+              Showing {(page - 1) * USERS_PAGE_SIZE + 1} to{' '}
+              {Math.min(page * USERS_PAGE_SIZE, total)} of {total} users
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setPage(page - 1)}
+                disabled={page === 1}
+                className="px-3 py-1 bg-surface-700 rounded text-surface-300 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-surface-600"
+              >
+                Previous
+              </button>
+              <button
+                onClick={() => setPage(page + 1)}
+                disabled={isLastPage}
+                className="px-3 py-1 bg-surface-700 rounded text-surface-300 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-surface-600"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Groups Modal */}
@@ -408,6 +478,162 @@ export default function UserManagement() {
           }}
         />
       )}
+
+      {/* Create User Modal */}
+      {showCreateModal && <CreateUserModal onClose={() => setShowCreateModal(false)} />}
+    </div>
+  );
+}
+
+/**
+ * Creating an account here does not create a login. Firebase issues the
+ * person's subject id on their first Google sign-in, and the API guard then
+ * links that id to this row by matching the verified email address, so the
+ * only value this form really needs is the email.
+ */
+function CreateUserModal({ onClose }: { onClose: () => void }) {
+  const queryClient = useQueryClient();
+  const [email, setEmail] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [role, setRole] = useState<UserRole>('viewer');
+  const [externalId, setExternalId] = useState('');
+
+  const createMutation = useMutation({
+    mutationFn: (data: CreateUserData) => usersApi.create(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      toast.success('User created. They can now sign in with Google using that email address.');
+      onClose();
+    },
+    onError: (error: unknown) => {
+      const detail = axios.isAxiosError(error)
+        ? (error.response?.data as { message?: string } | undefined)?.message
+        : undefined;
+      toast.error(detail || 'Failed to create user');
+    },
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    createMutation.mutate({
+      email: email.trim(),
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
+      role,
+      externalId: externalId.trim() || undefined,
+    });
+  };
+
+  const inputClass =
+    'w-full bg-surface-900 border border-surface-600 rounded-lg px-3 py-2 text-white placeholder:text-surface-500 focus:outline-none focus:ring-2 focus:ring-brand-500';
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div className="bg-surface-800 rounded-lg w-full max-w-lg mx-4 max-h-[80vh] overflow-hidden">
+        <div className="p-4 border-b border-surface-700 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-white">Add User</h2>
+          <button onClick={onClose} className="p-1 text-surface-400 hover:text-white">
+            <XMarkIcon className="w-5 h-5" />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit}>
+          <div className="p-4 space-y-4 overflow-y-auto max-h-[60vh]">
+            <div className="text-surface-400 text-sm">
+              This creates the account, its role and its permissions. It does not create a
+              login: tell the person to sign in with Google using the email address below, and
+              they will be linked to this account on that first sign-in.
+            </div>
+            <div>
+              <label className="block text-surface-300 text-sm mb-1" htmlFor="new-user-email">
+                Email address
+              </label>
+              <input
+                id="new-user-email"
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="colleague@example.com"
+                className={inputClass}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-surface-300 text-sm mb-1" htmlFor="new-user-first">
+                  First name
+                </label>
+                <input
+                  id="new-user-first"
+                  type="text"
+                  required
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                  className={inputClass}
+                />
+              </div>
+              <div>
+                <label className="block text-surface-300 text-sm mb-1" htmlFor="new-user-last">
+                  Last name
+                </label>
+                <input
+                  id="new-user-last"
+                  type="text"
+                  required
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                  className={inputClass}
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-surface-300 text-sm mb-1" htmlFor="new-user-role">
+                Role
+              </label>
+              <select
+                id="new-user-role"
+                value={role}
+                onChange={(e) => setRole(e.target.value as UserRole)}
+                className={inputClass}
+              >
+                <option value="admin">Admin</option>
+                <option value="compliance_manager">Compliance Manager</option>
+                <option value="auditor">Auditor</option>
+                <option value="viewer">Viewer</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-surface-300 text-sm mb-1" htmlFor="new-user-uid">
+                Firebase user ID <span className="text-surface-500">(optional)</span>
+              </label>
+              <input
+                id="new-user-uid"
+                type="text"
+                value={externalId}
+                onChange={(e) => setExternalId(e.target.value)}
+                placeholder="Leave empty unless you have it from the Firebase console"
+                className={inputClass}
+              />
+            </div>
+          </div>
+          <div className="p-4 border-t border-surface-700 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-surface-300 hover:text-white hover:bg-surface-700 rounded-lg transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={createMutation.isPending}
+              className="bg-brand-500 hover:bg-brand-600 disabled:opacity-50 text-white px-4 py-2 rounded-lg transition-colors"
+            >
+              {createMutation.isPending ? 'Creating...' : 'Create User'}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }

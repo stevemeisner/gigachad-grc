@@ -1,8 +1,9 @@
 import { Injectable, NotFoundException, ConflictException, Logger } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { GroupsService } from '../permissions/groups.service';
-import { UserStatus, UserRole } from '@prisma/client';
+import { Prisma, UserStatus, UserRole } from '@prisma/client';
 import {
   CreateUserDto,
   UpdateUserDto,
@@ -11,6 +12,22 @@ import {
   UserResponseDto,
   UserListResponseDto,
 } from './dto/user.dto';
+
+/**
+ * Marks an account that was created by an administrator before its owner had
+ * ever signed in, so no Firebase subject id existed yet. A Firebase subject is
+ * a 28-character alphanumeric string and can never contain a colon, so a
+ * prefixed value cannot collide with a real one. `external_id` is globally
+ * unique, hence the UUID: several accounts may be waiting at once.
+ */
+export const PENDING_EXTERNAL_ID_PREFIX = 'pending:';
+
+/** A `users` row loaded with the group memberships `toResponseDto` reads. */
+type UserWithGroups = Prisma.UserGetPayload<{
+  include: {
+    groupMemberships: { include: { group: { select: { id: true; name: true } } } };
+  };
+}>;
 
 @Injectable()
 export class UsersService {
@@ -205,7 +222,13 @@ export class UsersService {
   }
 
   /**
-   * Create a new user manually
+   * Create a user account by hand.
+   *
+   * `dto.externalId` is optional, because an administrator inviting a colleague
+   * does not have their Firebase subject id: Firebase issues one only on a
+   * first sign-in. Such an account is stored with a pending placeholder, and
+   * `FirebaseAuthGuard` claims the row on that first Google sign-in by matching
+   * the verified email and overwriting the placeholder with the real subject.
    */
   async create(
     organizationId: string,
@@ -213,25 +236,31 @@ export class UsersService {
     actorId?: string,
     actorEmail?: string,
   ): Promise<UserResponseDto> {
-    const existing = await this.prisma.user.findFirst({
-      where: {
-        organizationId,
-        OR: [
-          { externalId: dto.externalId },
-          { email: dto.email },
-        ],
-      },
-    });
+    // Email is unique per organization; `external_id` is unique across the
+    // whole table, so its arm carries no organization filter. The arm is added
+    // only when an id was actually supplied, rather than relying on Prisma
+    // dropping an `undefined` comparison.
+    const conflicts: Prisma.UserWhereInput[] = [{ organizationId, email: dto.email }];
+
+    if (dto.externalId) {
+      conflicts.push({ externalId: dto.externalId });
+    }
+
+    const existing = await this.prisma.user.findFirst({ where: { OR: conflicts } });
 
     if (existing) {
-      throw new ConflictException('User with this email or external ID already exists');
+      throw new ConflictException(
+        dto.externalId
+          ? 'User with this email or external ID already exists'
+          : 'User with this email already exists',
+      );
     }
 
     const displayName = dto.displayName || `${dto.firstName} ${dto.lastName}`;
 
     const user = await this.prisma.user.create({
       data: {
-        externalId: dto.externalId,
+        externalId: dto.externalId || `${PENDING_EXTERNAL_ID_PREFIX}${randomUUID()}`,
         organizationId,
         email: dto.email,
         firstName: dto.firstName,
@@ -402,12 +431,18 @@ export class UsersService {
   }
 
   /**
-   * Convert user entity to response DTO
+   * Convert user entity to response DTO.
+   *
+   * `lastLoginAt` is the signal for `hasSignedIn`: the guard stamps it on every
+   * resolved request, so it is set from the first one onwards. A pending
+   * placeholder is withheld — it is bookkeeping, not the person's identity.
    */
-  private toResponseDto(user: any): UserResponseDto {
+  private toResponseDto(user: UserWithGroups): UserResponseDto {
+    const isPending = user.externalId.startsWith(PENDING_EXTERNAL_ID_PREFIX);
+
     return {
       id: user.id,
-      externalId: user.externalId,
+      externalId: isPending ? undefined : user.externalId,
       email: user.email,
       firstName: user.firstName,
       lastName: user.lastName,
@@ -415,10 +450,11 @@ export class UsersService {
       role: user.role,
       status: user.status,
       lastLoginAt: user.lastLoginAt || undefined,
-      groups: user.groupMemberships?.map((m: any) => ({
+      hasSignedIn: !!user.lastLoginAt,
+      groups: user.groupMemberships.map(m => ({
         id: m.group.id,
         name: m.group.name,
-      })) || [],
+      })),
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };
