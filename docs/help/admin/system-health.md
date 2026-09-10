@@ -23,19 +23,8 @@ request, grouped into six categories.
   `POSTGRES_PASSWORD` or `MINIO_ROOT_PASSWORD` is empty or one of the known
   defaults (`password`, `grc_secret`, `minioadmin`, `admin`); critical in
   production, a warning elsewhere.
-
-  > **Known false positive.** The check also tests `REDIS_PASSWORD`, and the
-  > empty string counts as a default. Redis was removed from this platform, so
-  > `REDIS_PASSWORD` is never set and this check reports "One or more services
-  > are using default passwords" no matter how strong the real credentials are.
-  > Until `services/controls/src/system/system-health.service.ts` drops that
-  > term, treat this finding as uninformative and verify the Postgres and MinIO
-  > passwords yourself — and note that it costs the production-readiness score
-  > a full check in production, where it is critical.
 - **`security-encryption-key`** — Encryption Key. `ENCRYPTION_KEY` missing or
   shorter than 32 characters; critical in production.
-- **`security-jwt-secret`** — JWT Secret. `JWT_SECRET` missing or shorter than
-  32 characters; critical in production.
 
 ### Authentication (`auth-*`)
 - **`auth-firebase-config`** — Firebase Configuration. Healthy when
@@ -45,8 +34,10 @@ request, grouped into six categories.
 - **`auth-domain-allowlist`** — Email Domain Allowlist. A Firebase ID token
   carries no hosted-domain claim, so `ALLOWED_EMAIL_DOMAINS` is what stops any
   Google account from signing in. Unset is a warning in production.
-- **`auth-session-secret`** — Session Secret. `SESSION_SECRET` shorter than 32
-  characters; critical in production.
+
+There is no check for a token-signing secret, because the application holds
+none: sign-in is Firebase, and its RS256 ID tokens are verified against
+Google's JWKS with the issuer and audience pinned to `FIREBASE_PROJECT_ID`.
 
 ### Backup Configuration (`backup-*`)
 - **`backup-script-exists`** — warns when `deploy/backup.sh` cannot be found.
@@ -88,8 +79,8 @@ when no check is critical.
 ### Categories Checked
 The same six categories the health checks emit:
 
-1. **Security** — auth mode, default passwords, encryption key, JWT secret
-2. **Authentication** — Firebase project, email domain allowlist, session secret
+1. **Security** — auth mode, default passwords, encryption key
+2. **Authentication** — Firebase project, email domain allowlist
 3. **Backup** — script presence, remote backup, retention
 4. **Database** — connectivity, SSL, pool settings
 5. **Storage** — MinIO/S3 configuration and SSL
@@ -97,18 +88,26 @@ The same six categories the health checks emit:
 
 ## Setup Wizard
 
-For new installations, the Setup Wizard guides administrators through essential configuration steps:
+The Setup Wizard reports whether each piece of essential configuration is in
+place. It **checks** state; it does not change anything.
 
-1. **Database Connection** - Verify PostgreSQL is accessible
-2. **Encryption Key** - Generate and configure encryption
-3. **Admin User** - Create initial administrator account
-4. **Organization** - Set up default organization
-5. **Authentication** - Configure Firebase Authentication (Google sign-in).
-   Satisfied by `FIREBASE_PROJECT_ID`, or by `AUTH_MODE=demo` for local
-   development.
-6. **Backup Configuration** - Enable remote backup for disaster recovery
+1. **Database Connection** — PostgreSQL is reachable
+2. **Encryption Key** — `ENCRYPTION_KEY` is set and long enough
+3. **Admin User** — at least one admin `users` row exists
+4. **Organization** — at least one organization exists
+5. **Authentication** — satisfied by `FIREBASE_PROJECT_ID`, or by
+   `AUTH_MODE=demo` for local development
+6. **Backup Configuration** — remote backup is enabled
 
-The wizard can be accessed at any time from Settings to review configuration status.
+> The wizard's own instructions for step 3 name a seed command
+> (`npm run seed:admin`) that does not exist in this repository, and suggest
+> `AUTH_AUTO_PROVISION=true`, which creates a **viewer**, not an
+> administrator. Create the first administrator with the SQL in
+> [Deployment Runbook §6](../../DEPLOYMENT-RUNBOOK.md#6-create-the-first-administrator)
+> instead.
+
+The wizard can be opened at any time from Settings to review configuration
+status.
 
 ## CLI Validation Script
 
@@ -127,51 +126,41 @@ npm run validate:production:strict
 - **1**: Critical errors found (blocks deployment)
 - **2**: Warnings found (only in strict mode)
 
-### Sample Output
+### What it prints
+
+The script walks a series of sections — Environment Configuration, Security
+Configuration, Authentication, Database Configuration, Object Storage,
+Backup Configuration, Network Configuration, Monitoring & Logging, Email
+Delivery, File System, Host Prerequisites — marking each finding pass, warn
+or fail, and closes with a summary:
 
 ```
-╔═══════════════════════════════════════════════════════════════╗
-║         GigaChad GRC Production Validation                    ║
-╚═══════════════════════════════════════════════════════════════╝
-
 ━━━ Security Configuration ━━━
 ✓ ENCRYPTION_KEY is properly configured
-✓ JWT_SECRET is properly configured
 ✓ All passwords have been changed from defaults
 
 ━━━ Backup Configuration ━━━
 ✓ Backup script exists
-✓ Remote backup is enabled
+⚠ Remote backup is not enabled
 ✓ Backup retention is 30 days
 
-━━━ Summary ━━━
   Passed:   12
   Warnings: 2
   Errors:   0
 
   Production Readiness Score: 92/100
-
-✅ Validation PASSED - System is production ready!
 ```
 
-## Docker Entrypoint Features
+With warnings and no errors the script exits 0 unless `--strict` was passed.
+It scores the same way the in-app widget does: a warning is worth half a
+check, an error nothing.
 
-When running in Docker, the entrypoint script automatically:
+## Scheduled backups
 
-1. **Waits for Dependencies** - Ensures PostgreSQL is ready
-2. **Runs Migrations** - Applies pending database migrations
-3. **Schedules Backups** - Sets up cron job if AUTO_BACKUP_ENABLED=true
-4. **Checks Configuration** - Logs warnings for production misconfigurations
-
-### Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| AUTO_BACKUP_ENABLED | false | Enable automatic backup scheduling |
-| AUTO_BACKUP_SCHEDULE | 0 2 * * * | Cron schedule (default: 2 AM daily) |
-| AUTO_MIGRATE | true | Run database migrations on startup |
-| WAIT_FOR_DB | true | Wait for PostgreSQL before starting |
-| DB_WAIT_TIMEOUT | 60 | Seconds to wait for database |
+The `backup-scheduler` container in `docker-compose.prod.yml` runs
+`deploy/backup.sh` on the schedule in `deploy/cron/backup-crontab` — a daily
+backup, pruned according to `BACKUP_RETENTION_DAYS`. It is part of the
+production stack and needs no configuration beyond that variable.
 
 ## API Endpoints
 
@@ -210,12 +199,14 @@ Every service (controls 3001, frameworks 3002, policies 3004, tprm 3005, trust
    - Never deploy with ERRORS in the validation output
    - Review warnings and create tickets to address them
 
-3. **Enable automatic backups in production**
+3. **Send backups off the machine**
    ```bash
-   AUTO_BACKUP_ENABLED=true
    DR_REMOTE_BACKUP_ENABLED=true
    DR_REMOTE_BACKUP_S3_BUCKET=your-backup-bucket
+   DR_REMOTE_BACKUP_REGION=us-east-1
    ```
+   The `backup-scheduler` container already takes them; the variables above
+   copy each archive to S3 so it does not sit on the disk being backed up.
 
 4. **Monitor the health banner daily**
    - Check for new warnings after configuration changes

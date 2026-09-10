@@ -173,8 +173,7 @@ The frontend counterpart requires `VITE_AUTH_MODE=demo` **and**
 `import.meta.env.DEV`, so it cannot be compiled into a production bundle at
 all.
 
-This is the only bypass in the system. No development guard remains: all six
-copies of the former `dev-auth.guard.ts` are deleted.
+This is the only bypass in the system.
 
 ### Session Management
 
@@ -381,9 +380,8 @@ which would previously have widened the query to every organization.
 
 ### Cross-Tenant Access Prevention
 
-- Controllers no longer read `x-organization-id` / `x-user-id` from request
-  headers — those are client-supplied and were only ever safe because the
-  since-deleted development guard overwrote them on the way in
+- Controllers never read `x-organization-id` or `x-user-id` from request
+  headers. Those values are client-supplied and cannot be trusted
 - Organization context comes from the caller's `users` row, resolved
   server-side after token verification
 - Database constraints enforce foreign key relationships
@@ -416,17 +414,17 @@ await this.auditService.log({
 });
 ```
 
-### Audit Log Retention
+### Immutability
 
-- Default retention: 2 years
-- Configurable per organization
-- Export capability for compliance
+The audit API is read-only. `services/controls/src/audit/audit.controller.ts`
+exposes `GET` routes only — list, stats, export, filters, by entity and by
+id — so no request can alter or remove an audit record.
 
-### Tamper Protection
-
-- Audit logs are append-only (no updates/deletes via API)
-- Database-level triggers prevent modification
-- Optional write-once storage integration (S3 Object Lock)
+Nothing below the API level enforces that. There is no database trigger, no
+write-once storage and no object-lock integration, so anyone with direct
+database access can still modify the table. The application applies no
+retention policy to `AuditLog` either: records accumulate until someone
+prunes them deliberately.
 
 ---
 
@@ -434,20 +432,15 @@ await this.auditService.log({
 
 ### Content Security Policy
 
-```typescript
-// Helmet CSP configuration
-app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      scriptSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      imgSrc: ["'self'", "data:", "https:"],
-      connectSrc: ["'self'", process.env.API_URL],
-    },
-  },
-}));
-```
+The API services apply `helmet` in each service's `main.ts` with
+`contentSecurityPolicy: false`: they serve JSON rather than documents, so a
+CSP on those responses would protect nothing.
+
+The browser-facing headers come from the frontend container's nginx
+configuration (`frontend/nginx.conf.template`), which sends
+`X-Frame-Options: SAMEORIGIN`, `X-Content-Type-Options: nosniff` and
+`X-XSS-Protection: 1; mode=block`. It does **not** send a
+`Content-Security-Policy` header today.
 
 ### XSS Prevention
 
@@ -485,81 +478,71 @@ development build. It holds no credential.
 
 ## AI & Integration Security
 
-### AI Provider Security
+### AI provider credentials
 
-When using OpenAI or Anthropic integrations:
+The AI provider API keys are **environment variables only**:
+`OPENAI_API_KEY` and `ANTHROPIC_API_KEY`, read by
+`services/controls/src/ai/providers/`. They are not stored in the database
+and there is no UI field for them, so they are protected by the file
+permissions on `.env.prod` and nothing else.
 
-**API Key Protection:**
-- API keys encrypted at rest using AES-256
-- Keys never exposed in logs, responses, or UI
-- Keys stored in encrypted `settings` JSONB column
-- Access controlled by `settings:update` permission
+What the application stores per organization (in the `Organization.settings`
+JSONB column, unencrypted, because none of it is a credential) is the
+provider choice, model name, enabled flag, temperature and token ceiling.
+Changing it requires the `settings:update` permission.
 
-**Data Handling:**
-- Review what data is sent to AI providers
-- Consider data residency requirements
-- Understand provider data retention policies
-- Use API keys with minimal scope
+Before enabling AI features, decide what control, risk and policy text may
+leave your network: prompts go to the provider you configure.
 
-**Configuration:**
-```typescript
-// AI configuration is stored securely
-const aiConfig = {
-  provider: 'openai' | 'anthropic',
-  apiKey: encrypted, // Never exposed after saving
-  model: 'gpt-5' | 'claude-opus-4.5',
-  features: {
-    riskScoring: boolean,
-    categorization: boolean,
-    search: boolean,
-  }
-};
-```
+### Integration credentials
 
-### FieldGuide Integration Security
+Credentials for the connectors the product collects evidence **from** — AWS,
+Azure, GitHub, Okta, Keycloak, Datadog and the rest under
+`services/controls/src/integrations/connectors/` — are encrypted before
+storage by `IntegrationsService`, using AES-256-GCM with a key derived from
+`ENCRYPTION_KEY` (`iv:authTag:ciphertext`). The service refuses to start
+with a missing or too-short `ENCRYPTION_KEY`.
 
-**OAuth 2.0 Flow:**
-- Authorization code flow with PKCE
-- Tokens stored encrypted
-- Automatic token refresh
-- Revocation support
+> Keycloak appears in that list as a **third-party system this product reads
+> evidence from**, in the same way as Okta or AWS. It is not part of signing
+> in to GigaChad GRC — that is Firebase, described above.
 
-**Webhook Security:**
-- Webhook signature verification
-- Shared secret validation
-- IP allowlist support
-- Event logging
+Give each connector the least privilege that still collects the evidence:
 
-### Evidence Collector Security
+| Provider | Auth method | Suggested minimum |
+|----------|-------------|-------------------|
+| AWS | Access keys | Read-only resource access |
+| Azure | Service principal | Reader role |
+| GitHub | Personal access token | `read:org`, repository read |
+| Okta | API token | Read-only administrator |
 
-**Credential Management:**
-- Service account credentials encrypted at rest
-- Least-privilege access (read-only where possible)
-- Credential rotation support
-- Access logging
+### FieldGuide integration
 
-**Supported Authentication:**
+`services/audit/src/fieldguide/` authenticates with a **shared API key**, not
+OAuth. Two things to know before enabling it:
 
-| Provider | Auth Method | Minimum Permissions |
-|----------|-------------|---------------------|
-| AWS | Access Keys / IAM Role | Read-only resource access |
-| Azure | Service Principal | Reader role |
-| GitHub | PAT / OAuth App | `read:org`, repo read |
-| Okta | API Token | Read-only Admin |
+- The API key is persisted as supplied. Unlike the connector credentials
+  above, it does not go through `IntegrationsService`, so it is not
+  encrypted at rest — the source says so in as many words.
+- Inbound webhooks are verified against a shared `webhookSecret` and
+  rejected with 400 on a signature mismatch.
 
-### MCP Server Security
+### MCP servers
 
-**Server Isolation:**
-- Each MCP server runs in isolated process
-- Network access restricted to localhost
-- Resource limits enforced
-- Automatic health monitoring
+The MCP servers are defined in
+`services/controls/src/mcp/mcp-servers.config.ts`, not by environment
+variables. Each runs as a child process spawned by
+`services/controls/src/mcp/mcp-client.service.ts`, which:
 
-**Tool Execution:**
-- All tool calls logged with parameters
-- Sensitive parameters redacted in logs
-- Permission checks before execution
-- Rate limiting per server
+- refuses any command outside an allowlist (`node`, `npx`, `npm`, `python`,
+  `python3`), so a tampered configuration cannot run an arbitrary binary
+- communicates over the process's stdio, not a network socket
+- applies a start-up readiness timeout (10s default) and a per-request
+  timeout (30s default)
+
+Credentials the MCP servers need are stored by
+`services/controls/src/mcp/mcp-credentials.service.ts`, encrypted with
+AES-256-GCM.
 
 ---
 
@@ -573,7 +556,10 @@ Required production secrets:
 - `DATABASE_URL` (or `POSTGRES_PASSWORD`) — PostgreSQL credentials
 - `ENCRYPTION_KEY` — encrypts stored integration credentials; losing it makes
   them unreadable
-- `JWT_SECRET` — reserved for internal service-to-service tokens
+
+The application signs no tokens of its own, so it holds no signing secret:
+sign-in is Firebase, and its RS256 ID tokens are verified against Google's
+JWKS with the issuer and audience pinned to `FIREBASE_PROJECT_ID`.
 
 Required production authentication settings (none of these is a secret):
 - `FIREBASE_PROJECT_ID` — pins the accepted token issuer and audience
@@ -586,29 +572,43 @@ Required production authentication settings (none of these is a secret):
 - `AUTH_MODE` — leave unset. `AUTH_MODE=demo` is the only bypass and the guard
   hard-throws when `NODE_ENV=production`
 
-### TLS Configuration
+### TLS
 
-- TLS 1.2+ required
-- Strong cipher suites only
-- HSTS enabled with 1-year max-age
+Traefik terminates TLS with a Let's Encrypt certificate and redirects the
+`web` entrypoint to `websecure`. It runs on Traefik's defaults: TLS 1.2 and
+1.3 with its default cipher list. **No HSTS header is configured** — nothing
+in `docker-compose.prod.yml` or the nginx configurations sends
+`Strict-Transport-Security`. Add it deliberately if you want it.
 
-### Rate Limiting
+### Rate limiting
 
-```typescript
-// Production rate limiting
-app.use(rateLimit({
-  windowMs: 60 * 1000, // 1 minute
-  max: 100, // 100 requests per minute
-  skipPaths: ['/health', '/api/health'],
-}));
-```
+Two independent layers, both with fixed limits:
 
-### Database Security
+| Layer | Where | Limit |
+|---|---|---|
+| Traefik middleware on the gateway router | `docker-compose.prod.yml` labels | average 200 requests, burst 100 |
+| `@nestjs/throttler` inside the controls service | `services/controls/src/app.module.ts` | 5 per second, 30 per 10 seconds, 100 per minute |
 
-- Connection pooling via Prisma
-- Prepared statements (SQL injection prevention)
-- Least-privilege database user
-- Encrypted connections (SSL mode)
+`CustomThrottlerGuard` (`services/controls/src/auth/throttler.guard.ts`)
+buckets by API key hash, then by user id plus IP for an authenticated
+caller, and by IP otherwise. The other five services have no throttler of
+their own; the Traefik middleware is the only limit in front of them.
+
+> The throttler's numbers are hard-coded. `RATE_LIMIT_MAX` and
+> `RATE_LIMIT_WINDOW_MS` are **not read by any service** — setting them
+> changes nothing. `RATE_LIMIT_ENABLED` is read only by the in-app
+> production-readiness report, not by the throttler.
+
+### Database
+
+- Prisma pools connections in-process and parameterizes every query it
+  builds, so injection is not reachable through the ORM
+- PostgreSQL publishes no port: `grc-network` is `internal: true`
+- The container runs read-only, drops all capabilities except the five
+  PostgreSQL needs to manage its data directory, and sets
+  `no-new-privileges`
+- The application connects as the `POSTGRES_USER` account, which owns the
+  schema. There is no separate least-privilege application role
 
 ---
 

@@ -6,7 +6,7 @@ Use this checklist to ensure a successful production deployment of GigaChad GRC.
 
 ### Infrastructure Setup
 
-- [ ] **Server provisioned** with minimum requirements (4 CPU, 16GB RAM, 100GB SSD)
+- [ ] **Server provisioned**: 2 vCPU / 4 GB RAM / 40 GB SSD minimum, 4 vCPU / 8 GB / 80 GB comfortable. The peak is the first image build (a Vite build of the frontend needs 1.5-2.5 GB), not steady-state running
 - [ ] **Operating System**: Ubuntu 22.04 LTS or later installed
 - [ ] **Docker** (v24.0+) installed and running
 - [ ] **Docker Compose** (v2.20+) installed
@@ -30,7 +30,6 @@ Use this checklist to ensure a successful production deployment of GigaChad GRC.
 ### Security Preparation
 
 - [ ] **Strong passwords generated** for all services
-- [ ] **JWT secrets generated** using openssl
 - [ ] **Encryption keys generated**
 - [ ] **SSL strategy decided** (Let's Encrypt or custom certificates)
 - [ ] **SMTP credentials** obtained (if using email notifications)
@@ -58,8 +57,7 @@ Use this checklist to ensure a successful production deployment of GigaChad GRC.
 - [ ] **ACME email configured** for Let's Encrypt
 - [ ] **File permissions set** (`chmod 600 .env.prod`)
 - [ ] **.env.prod added to .gitignore**
-- [ ] **Configuration validated** (`docker compose config`)
-- [ ] **Preflight passed** (`./deploy/preflight-check.sh`)
+- [ ] **Configuration resolves** (`docker compose -f docker-compose.prod.yml --env-file .env.prod config`)
 - [ ] **Production validation passed** (`npm run validate:production`)
 
 ### Phase 2: Security Configuration (15 minutes)
@@ -67,9 +65,7 @@ Use this checklist to ensure a successful production deployment of GigaChad GRC.
 - [ ] **PostgreSQL password** set (32+ characters)
 - [ ] **`NODE_ENV=production`** set and **`AUTH_MODE` left unset** (the auth guard refuses to start with `AUTH_MODE=demo` under production)
 - [ ] **MinIO credentials** set (20+ characters)
-- [ ] **JWT_SECRET** generated (64 characters)
-- [ ] **SESSION_SECRET** generated (64 characters)
-- [ ] **ENCRYPTION_KEY** generated (32 characters hex)
+- [ ] **ENCRYPTION_KEY** generated (`openssl rand -hex 32`, at least 32 characters) **and stored off the server** - it cannot be recovered from a backup
 - [ ] **All secrets documented** in secrets manager
 - [ ] **Secrets backup** stored securely offline
 
@@ -120,7 +116,7 @@ Use this checklist to ensure a successful production deployment of GigaChad GRC.
 #### PostgreSQL
 
 - [ ] **Database accessible** from services
-- [ ] **Migrations run** successfully (`./deploy/db-migrate.sh migrate`)
+- [ ] **Schema applied** with `prisma db push` ([runbook 7.2](../docs/DEPLOYMENT-RUNBOOK.md#72-apply-the-schema)). Do not use `prisma migrate deploy` or `deploy/db-migrate.sh`: there is no baseline migration to apply
 - [ ] **Database seeding completed** (if applicable)
 - [ ] **Connection pool configured**
 - [ ] **Query performance acceptable**
@@ -197,19 +193,18 @@ Use this checklist to ensure a successful production deployment of GigaChad GRC.
   - [ ] `/health` - Full health check
   - [ ] `/health/live` - Liveness probe
   - [ ] `/health/ready` - Readiness probe
-- [ ] **Kubernetes/Docker probes configured** (if applicable)
+- [ ] **Container healthchecks** reporting healthy (`docker compose -f docker-compose.prod.yml --env-file .env.prod ps`)
 - [ ] **External health monitoring** setup (Uptime Robot, Pingdom, etc.)
 
 #### Rate Limiting
 
-- [ ] **Application rate limiting** active on the controls service (`ThrottlerModule`, tiered: 5/second, 30/10 seconds)
+- [ ] **Application rate limiting** active on the controls service (`ThrottlerModule`, tiered: 5/second, 30/10 seconds, 100/minute). The other five services rely on the edge limit alone
 - [ ] **Edge rate limiting** active on the gateway router (`gateway-ratelimit`: 200 average, 100 burst)
-- [ ] **`RATE_LIMIT_ENABLED`** left unset or `true` (the production-readiness check treats anything other than `false` as enabled)
-- [ ] **Health endpoints excluded** from rate limiting
+- [ ] Understood that the tier values are hard-coded: `RATE_LIMIT_MAX` and `RATE_LIMIT_WINDOW_MS` are read by no service, and no route is excluded from throttling
 
 #### Caching
 
-- [ ] **In-process cache active** (`services/shared/src/cache`; there is no Redis in this deployment)
+- [ ] **In-process cache active** (`services/shared/src/cache`; there is no external cache server in this deployment)
 - [ ] **Cache TTL** appropriate (default 300 seconds)
 - [ ] **Cache invalidation tested** on data updates
 - [ ] **Cache size limit** configured (default `maxSize: 1000` entries per service instance)
@@ -222,26 +217,26 @@ Use this checklist to ensure a successful production deployment of GigaChad GRC.
 - [ ] **Global exception filter** providing safe error responses
 - [ ] **No stack traces** exposed in production errors
 
-#### Bulk Operations (Phase 4)
+#### Bulk Operations
 
 - [ ] **Bulk select** working on listing pages
 - [ ] **Bulk delete** working with confirmation
 - [ ] **Bulk status update** working
 - [ ] **Toast notifications** showing correct counts
 
-#### Advanced Filters (Phase 4)
+#### Advanced Filters
 
 - [ ] **Filter builder** working on relevant pages
 - [ ] **Filter presets** can be saved and loaded
 - [ ] **Date range filtering** working
 
-#### Export Functionality (Phase 4)
+#### Export Functionality
 
 - [ ] **CSV export** working
 - [ ] **Excel export** working
 - [ ] **PDF export** (via print) working
 
-#### Compliance Calendar (Phase 4)
+#### Compliance Calendar
 
 - [ ] **Policy review events** displaying
 - [ ] **Audit deadlines** displaying
@@ -293,10 +288,13 @@ Use this checklist to ensure a successful production deployment of GigaChad GRC.
 
 ## Rollback Checklist
 
-If issues occur and rollback is needed:
+The procedure is [Deployment Runbook §10](../docs/DEPLOYMENT-RUNBOOK.md#10-rollback),
+which distinguishes a code-only rollback from one that must also restore the
+database. Working through it:
 
-- [ ] **Stop all services** (`docker compose down`)
-- [ ] **Restore from last known good backup**
+- [ ] **Fresh backup taken** before touching anything - a restore discards current data
+- [ ] **Stack stopped** (`docker compose -f docker-compose.prod.yml --env-file .env.prod down`)
+- [ ] **Restored from the last known good archive** (`./deploy/restore.sh <archive>`), if the schema changed
 - [ ] **Verify restoration** successful
 - [ ] **Test functionality** before announcing rollback
 - [ ] **Document rollback reason**
@@ -383,5 +381,6 @@ Use this space to document any deployment-specific notes, issues encountered, or
 
 **For assistance, refer to:**
 - [docs/DEPLOYMENT-RUNBOOK.md](../docs/DEPLOYMENT-RUNBOOK.md) - Authoritative step-by-step runbook
-- [deploy/README.md](./README.md) - Comprehensive deployment guide
-- [deploy/QUICKSTART.md](./QUICKSTART.md) - Quick reference guide
+- [deploy/README.md](./README.md) - What is in `deploy/`, plus Firebase, MinIO, backup and monitoring operations
+- [deploy/QUICKSTART.md](./QUICKSTART.md) - Condensed command reference
+- [docs/PRODUCTION_DEPLOYMENT.md](../docs/PRODUCTION_DEPLOYMENT.md) - Architecture and troubleshooting reference

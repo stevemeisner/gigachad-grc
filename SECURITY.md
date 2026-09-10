@@ -23,7 +23,7 @@ verifies a user password. See
 
 Before deploying to production:
 
-- [ ] Change all default passwords in `.env` file (`POSTGRES_PASSWORD`, `MINIO_ROOT_PASSWORD`, `JWT_SECRET`, `ENCRYPTION_KEY`)
+- [ ] Change all default passwords in `.env` file (`POSTGRES_PASSWORD`, `MINIO_ROOT_PASSWORD`, `ENCRYPTION_KEY`)
 - [ ] Enable TLS/SSL for all services
 - [ ] Set `NODE_ENV=production` and confirm `AUTH_MODE` is **unset** - `AUTH_MODE=demo` bypasses token verification and the guard refuses to start when `NODE_ENV=production`
 - [ ] Set `FIREBASE_PROJECT_ID` and restrict `ALLOWED_EMAIL_DOMAINS` to the domains that may sign in
@@ -37,8 +37,8 @@ Before deploying to production:
 - [ ] Review and configure CORS policies (`CORS_ORIGINS`)
 - [ ] Enable audit logging for all services
 - [ ] Configure proper firewall rules
-- [ ] Use environment-specific `.env` files (never commit to git)
-- [ ] Run `./deploy/preflight-check.sh` and resolve every failure
+- [ ] Keep production values in `.env.prod` only (never commit it to git)
+- [ ] Run `npm run validate:production` and resolve every failure
 
 ## Data Scrubbing
 

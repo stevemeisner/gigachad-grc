@@ -1,25 +1,36 @@
 # GigaChad GRC - Environment Configuration Reference
 
-Complete reference for all environment variables used across the platform.
+Reference for the environment variables the code actually reads. Every
+variable named here appears in the source; where a default is given, it is
+the default the code applies.
 
-## Quick Setup
+`deploy/env.example` is the shipped template. Copy it to **`.env.prod`** —
+that is the single production environment filename, and what
+`docker-compose.prod.yml`, `deploy/backup.sh`, `deploy/restore.sh` and
+`scripts/validate-production.sh` all read.
 
-For local development, most defaults work out of the box. For production, see [Production Deployment Guide](./PRODUCTION_DEPLOYMENT.md).
+```bash
+cp deploy/env.example .env.prod
+chmod 600 .env.prod
+```
+
+For the deployment procedure itself see
+[Deployment Runbook](./DEPLOYMENT-RUNBOOK.md).
 
 ---
 
 ## Backend Services
 
-All backend services share common environment variables:
-
-### Required Variables
+### Core
 
 | Variable | Example | Description |
 |----------|---------|-------------|
-| `DATABASE_URL` | `postgresql://user:pass@host:5432/db` | PostgreSQL connection string |
 | `NODE_ENV` | `development` \| `production` | Environment mode |
+| `DATABASE_URL` | `postgresql://user:pass@host:5432/db` | PostgreSQL connection string |
+| `PORT` | `3001` | Overrides the service's own default port |
+| `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
 
-### Database Configuration
+### Database
 
 ```bash
 # The services read DATABASE_URL and nothing else. Inside Docker the host is
@@ -27,8 +38,8 @@ All backend services share common environment variables:
 # docker-compose.yml publishes 5433 to avoid clashing with a local PostgreSQL.
 DATABASE_URL=postgresql://grc:grc_secret@localhost:5433/gigachad_grc
 
-# Used by the postgres container itself (docker-compose.yml), not by the
-# services.
+# Read by the postgres container itself. docker-compose.prod.yml builds
+# DATABASE_URL for the services from these three values.
 POSTGRES_USER=grc
 POSTGRES_PASSWORD=grc_secret
 POSTGRES_DB=gigachad_grc
@@ -48,6 +59,10 @@ is read by `FirebaseAuthGuard` (`services/shared/src/auth/firebase-auth.guard.ts
 | `AUTH_DEFAULT_ORG_ID` | Only with `AUTH_AUTO_PROVISION=true` | — | Organization UUID auto-provisioned users join. The guard throws at start-up if auto-provisioning is on without it |
 | `AUTH_MODE` | No | unset | `demo` is the **only** authentication bypass: every request is served as the seeded demo user. The guard hard-throws when `NODE_ENV=production` |
 
+The guard also rejects a token that is not RS256, is expired, has
+`email_verified` false, or whose sign-in provider is not `google.com`. None
+of that is configurable.
+
 ```bash
 # Production
 FIREBASE_PROJECT_ID=acme-grc
@@ -60,56 +75,89 @@ AUTH_AUTO_PROVISION=false
 
 ### File Storage
 
-```bash
-# Local storage (development)
-STORAGE_PROVIDER=local
-UPLOAD_DIR=./uploads
+`STORAGE_TYPE` selects the provider and defaults to `local`. The `MINIO_*`
+names take precedence over their `S3_*` and `AWS_*` aliases wherever both are
+read.
 
-# S3 storage (production)
-STORAGE_PROVIDER=s3
-S3_BUCKET=grc-files
-S3_REGION=us-east-1
-S3_ACCESS_KEY=AKIA...
-S3_SECRET_KEY=secret
-S3_ENDPOINT=  # Leave empty for AWS, set for MinIO
+```bash
+# Local filesystem (development)
+STORAGE_TYPE=local
+LOCAL_STORAGE_PATH=./storage          # default ./storage
+LOCAL_STORAGE_BASE_URL=/files         # default /files
+
+# MinIO (what docker-compose.prod.yml wires up) or S3
+STORAGE_TYPE=minio                    # or s3
+MINIO_ENDPOINT=minio                  # or S3_ENDPOINT
+MINIO_PORT=9000                       # or S3_PORT, default 9000
+MINIO_USE_SSL=false                   # or S3_USE_SSL
+MINIO_ACCESS_KEY=...                  # or AWS_ACCESS_KEY_ID
+MINIO_SECRET_KEY=...                  # or AWS_SECRET_ACCESS_KEY
+MINIO_BUCKET=grc-storage              # or S3_BUCKET, default grc-storage
+AWS_REGION=us-east-1                  # default us-east-1
+
+# Azure Blob Storage
+STORAGE_TYPE=azure
+AZURE_STORAGE_CONNECTION_STRING=...
+AZURE_STORAGE_ACCOUNT_NAME=...
+AZURE_STORAGE_ACCOUNT_KEY=...
+AZURE_STORAGE_SAS_TOKEN=...
+AZURE_STORAGE_CONTAINER=gigachad-grc  # default gigachad-grc
 ```
+
+There is one bucket, not one per module. Nothing in this repository creates
+it — see [Configuration](./CONFIGURATION.md#minio-configuration).
 
 ### Email
 
 ```bash
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
+EMAIL_PROVIDER=console                # console | smtp | sendgrid | ses; unset means smtp
+EMAIL_FROM=noreply@yourcompany.com
+EMAIL_FROM_NAME=GigaChad GRC
+
+# EMAIL_PROVIDER=smtp
+SMTP_HOST=smtp.yourprovider.com
+SMTP_PORT=587                         # default 587
+SMTP_SECURE=false                     # default false
 SMTP_USER=notifications@yourcompany.com
-SMTP_PASSWORD=app-password
-SMTP_FROM=GigaChad GRC <notifications@yourcompany.com>
-SMTP_SECURE=false
-SMTP_REQUIRE_TLS=true
+SMTP_PASS=...
+
+# EMAIL_PROVIDER=sendgrid
+SENDGRID_API_KEY=SG....
+
+# EMAIL_PROVIDER=ses
+AWS_REGION=us-east-1
+AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
 ```
 
-### Error Tracking
-
-```bash
-SENTRY_DSN=https://xxx@sentry.io/123
-SENTRY_ENVIRONMENT=production
-SENTRY_TRACES_SAMPLE_RATE=0.2
-```
+The variable is `SMTP_PASS`, not `SMTP_PASSWORD`. If the selected provider's
+configuration is incomplete, the email service silently falls back to console
+mode: messages are logged and never sent.
 
 ### Security
 
 ```bash
-# JWT secret for internal auth (generate: openssl rand -base64 32)
-JWT_SECRET=your-secret-here
+# Encrypts stored integration, MCP and notification credentials with
+# AES-256-GCM. At least 32 characters, or the services that use it refuse to
+# start. Losing it makes those credentials unreadable.
+ENCRYPTION_KEY=...
 
-# Encryption key for sensitive data
-ENCRYPTION_KEY=your-encryption-key
+# ENCRYPTION_KEY is the only secret the application holds. Sign-in is
+# Firebase: the API verifies Google-issued RS256 ID tokens against Google's
+# JWKS with the issuer and audience pinned to FIREBASE_PROJECT_ID, so there
+# is no signing secret to configure.
 
-# Rate limiting
+# Browser origins allowed to call the API. Scheme included, no trailing
+# slash. Unset in production only logs a warning and falls back to localhost
+# origins, which will not work for a real deployment.
+CORS_ORIGINS=https://grc.yourcompany.com
+
+# Read only by the in-app production-readiness report; it does not switch
+# the throttler off. The limits themselves are hard-coded (5/second,
+# 30/10 seconds, 100/minute in the controls service, plus a Traefik
+# average-200/burst-100 middleware on the gateway). RATE_LIMIT_MAX and
+# RATE_LIMIT_WINDOW_MS are read by no service.
 RATE_LIMIT_ENABLED=true
-RATE_LIMIT_MAX=100
-RATE_LIMIT_WINDOW_MS=60000
-
-# CORS
-CORS_ORIGINS=https://grc.yourcompany.com,https://www.yourcompany.com
 ```
 
 ### Service Ports
@@ -127,55 +175,58 @@ per-service port variable.
 | Trust | 3006 |
 | Audit | 3007 |
 
-Infrastructure: PostgreSQL on 5433 locally, MinIO on 9000 (API) and 9001
-(console). In production nothing but 80/443 is published — the nginx gateway
-(`gateway/nginx.conf`) is the single public entrypoint and the services share
-an internal Docker network.
+There is no service on 3003. Locally, PostgreSQL is published on 5433 and
+MinIO on 9000 (S3 API) and 9001 (console). In production nothing but 80 and
+443 is published: the nginx gateway (`gateway/nginx.conf`) is the single
+public entrypoint and the services share an internal Docker network.
 
-Every service exposes `GET /health`; controls additionally exposes
-`GET /api/system/health`.
+Every service exposes `GET /health`, `GET /health/live` and
+`GET /health/ready`; controls additionally exposes `GET /api/system/health`.
 
 ---
 
 ## Frontend Configuration
 
-All frontend variables must be prefixed with `VITE_` to be exposed to the browser.
+Frontend variables must be prefixed with `VITE_`, and every one of them is a
+**build-time** input: Vite compiles the value into the bundle, so changing
+one requires rebuilding the `frontend` image rather than restarting it.
 
-### Required Variables
+`docker-compose.prod.yml` passes only a fixed set of them through to
+`frontend/Dockerfile`. To use any other one in a container build, add it to
+both the `frontend.build.args` block and the `ARG`/`ENV` pair in the
+Dockerfile.
+
+### Firebase
 
 | Variable | Example | Description |
 |----------|---------|-------------|
-| `VITE_API_URL` | `https://grc.yourcompany.com` | Backend API base URL |
 | `VITE_FIREBASE_API_KEY` | `AIza...` | Firebase Web API key. A **public** client identifier, not a secret — it ships in the browser bundle by design |
 | `VITE_FIREBASE_AUTH_DOMAIN` | `acme-grc.firebaseapp.com` | Firebase auth domain |
-| `VITE_FIREBASE_PROJECT_ID` | `acme-grc` | Must match the backend's `FIREBASE_PROJECT_ID` |
+| `VITE_FIREBASE_PROJECT_ID` | `acme-grc` | Must equal the backend's `FIREBASE_PROJECT_ID`. `npm run validate:production` fails on a mismatch; left unchecked it surfaces only at sign-in, as `401 Firebase ID token is invalid: jwt audience invalid` |
 
-All three `VITE_FIREBASE_*` values are **build-time** inputs: `frontend/Dockerfile`
-takes them as build arguments and Vite compiles them into the bundle, so
-changing one requires rebuilding the image rather than restarting it.
+Without these three the sign-in button logs a configuration error and does
+nothing.
 
-### Optional Variables
+### Optional
 
 | Variable | Example | Description |
 |----------|---------|-------------|
-| `VITE_ALLOWED_EMAIL_DOMAIN` | `example.com` | Singular. Passed to Google as the `hd` parameter to pre-filter the account chooser. **Restricts nothing** — the real check is the backend's `ALLOWED_EMAIL_DOMAINS` |
-| `VITE_AUTH_MODE` | `demo` | Frontend half of the demo bypass. Also requires `import.meta.env.DEV`, so it cannot be reached from a production build |
+| `VITE_ALLOWED_EMAIL_DOMAIN` | `example.com` | Singular. Passed to Google as the `hd` parameter to pre-filter the account chooser. **Restricts nothing** — the enforcing check is the backend's `ALLOWED_EMAIL_DOMAINS` |
+| `VITE_AUTH_MODE` | `demo` | Frontend half of the demo bypass. Also requires `import.meta.env.DEV`, so it cannot be reached from a production build, which additionally throws at start-up if it is set |
+| `VITE_API_URL` | `https://grc.yourcompany.com` | Absolute API base URL. Empty by default, which means same-origin through the gateway |
 | `VITE_CONTROLS_API_URL` | `http://localhost:3001` | Overrides the controls-service base URL; falls back to `VITE_API_URL` |
 | `VITE_WS_URL` | `ws://localhost:3001/ws` | WebSocket endpoint |
 | `VITE_ENABLE_WEBSOCKET` | `true` | Enables the WebSocket connection |
 
 ### Error Tracking
 
+Browser-side only; the API services do not report to Sentry.
+
 ```bash
-# Enable Sentry (install @sentry/react first)
-VITE_ERROR_TRACKING_ENABLED=true
+VITE_ERROR_TRACKING_ENABLED=true      # off unless exactly "true"
 VITE_SENTRY_DSN=https://xxx@sentry.io/456
-
-# App version for release tracking
-VITE_APP_VERSION=1.0.0
-
-# Environment tag
-VITE_ENV=production
+VITE_APP_VERSION=1.0.0                # release tag
+VITE_ENV=production                   # environment tag
 ```
 
 ### Module Enablement
@@ -203,44 +254,34 @@ layer.
 
 ---
 
-## Docker Compose Configuration
+## How the values reach the containers
 
-When using Docker Compose, environment variables can be set:
-
-### Option 1: .env file in project root
+Production uses one mechanism: `.env.prod`, passed explicitly.
 
 ```bash
-# .env
-DATABASE_URL=postgresql://grc_user:secret@postgres:5432/gigachad_grc
-NODE_ENV=production
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
 ```
 
-### Option 2: environment section in docker-compose.yml
+`docker-compose.prod.yml` interpolates those values into each service's
+`environment:` block. **A service only ever sees the variables the compose
+file explicitly names it.** Putting a variable in `.env.prod` is not enough:
+if the compose file does not forward it to that service, the process never
+sees it. Adding a new backend variable therefore means editing
+`docker-compose.prod.yml` as well.
 
-```yaml
-services:
-  controls:
-    environment:
-      - DATABASE_URL=postgresql://grc:secret@postgres:5432/gigachad_grc
-      - NODE_ENV=production
+A running container keeps the environment it started with. After changing
+`.env.prod`, recreate the containers rather than restarting them:
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
 ```
 
-### Option 3: env_file directive
-
-```yaml
-services:
-  controls:
-    env_file:
-      - .env
-      - .env.prod
-```
+`VITE_*` values are different again: they are compiled into the frontend
+bundle at build time, so they need `--build frontend`, not a recreate.
 
 ---
 
 ## Environment Templates
-
-The shipped template is `deploy/env.example`; copy it to `.env.prod` for a
-production deployment (see [Deployment Runbook](./DEPLOYMENT-RUNBOOK.md)).
 
 ### Development
 
@@ -248,20 +289,28 @@ production deployment (see [Deployment Runbook](./DEPLOYMENT-RUNBOOK.md)).
 NODE_ENV=development
 DATABASE_URL=postgresql://grc:grc_secret@localhost:5433/gigachad_grc
 AUTH_MODE=demo
-STORAGE_PROVIDER=local
+STORAGE_TYPE=local
 LOG_LEVEL=debug
 ```
 
-`./scripts/start-demo.sh` sets this up for you; the only infrastructure
-containers it starts are PostgreSQL and MinIO.
+`./scripts/start-demo.sh` sets this up; the only infrastructure containers it
+starts are PostgreSQL and MinIO.
 
 ### Production
 
+Start from `deploy/env.example` rather than this list — it is the file that
+is kept in step with the compose file. The values that must be changed from
+their shipped defaults are:
+
 ```bash
 NODE_ENV=production
-DATABASE_URL=postgresql://grc:SECURE_PASSWORD@db.yourcompany.com:5432/gigachad_grc
+APP_DOMAIN=grc.yourcompany.com
+ACME_EMAIL=ops@yourcompany.com
 
-# Authentication — AUTH_MODE stays unset
+POSTGRES_PASSWORD=...
+MINIO_ROOT_USER=...
+MINIO_ROOT_PASSWORD=...
+
 FIREBASE_PROJECT_ID=acme-grc
 ALLOWED_EMAIL_DOMAINS=yourcompany.com
 AUTH_AUTO_PROVISION=false
@@ -269,91 +318,47 @@ VITE_FIREBASE_API_KEY=AIza...
 VITE_FIREBASE_AUTH_DOMAIN=acme-grc.firebaseapp.com
 VITE_FIREBASE_PROJECT_ID=acme-grc
 
-STORAGE_PROVIDER=s3
-S3_BUCKET=grc-files
-S3_REGION=us-east-1
-S3_ACCESS_KEY=AKIA...
-S3_SECRET_KEY=...
-SENTRY_DSN=https://...@sentry.io/...
-SMTP_HOST=smtp.yourprovider.com
-SMTP_PORT=587
-SMTP_USER=notifications@yourcompany.com
-SMTP_PASSWORD=...
-JWT_SECRET=GENERATE_NEW_SECRET
-ENCRYPTION_KEY=GENERATE_NEW_KEY
+ENCRYPTION_KEY=...
 CORS_ORIGINS=https://grc.yourcompany.com
-RATE_LIMIT_ENABLED=true
-LOG_LEVEL=info
 ```
 
 ---
 
 ## Generating Secrets
 
-Always generate fresh secrets for production:
-
 ```bash
-# JWT Secret
-openssl rand -base64 32
+# ENCRYPTION_KEY - must be at least 32 characters
+openssl rand -hex 32
 
-# Encryption Key
+# PostgreSQL and MinIO passwords
 openssl rand -base64 32
-
-# PostgreSQL Password
-openssl rand -base64 24 | tr -d '=+/'
 ```
 
 ---
 
 ## Validation
 
-Before deploying, validate your configuration. Both scripts read `.env.prod`
-in preference to `.env`, and they check different things — run both:
-
 ```bash
-# Environment values: required variables present and non-empty, secret
-# strength, AUTH_AUTO_PROVISION/AUTH_DEFAULT_ORG_ID consistency, and that
-# AUTH_MODE=demo is not enabled in production.
-npm run validate:production
-
-# Fail on warnings as well as errors
-npm run validate:production:strict
-
-# Deployment prerequisites: tooling (docker, compose, git, curl), the Docker
-# daemon, disk space, host ports 80/443, and the presence of the config files
-# a deploy needs (docker-compose.prod.yml, gateway/nginx.conf, the seven
-# Dockerfiles). Also re-checks the required variables and refuses any
-# remaining CHANGE_ME placeholder.
-./deploy/preflight-check.sh
+npm run validate:production          # reads .env.prod
+npm run validate:production:strict   # also fails on warnings
 ```
 
-Both fail if `VITE_FIREBASE_PROJECT_ID` does not equal
-`FIREBASE_PROJECT_ID`: the bundle is built from the `VITE_*` values, so a
-mismatch produces a frontend whose tokens the backend will always reject.
+The script checks that the required variables are present and non-empty,
+that secrets are long enough and not left at a shipped placeholder, that
+`AUTH_AUTO_PROVISION` has an organization to point at, that `CORS_ORIGINS`
+is restricted, that `AUTH_MODE=demo` is not enabled in production, and that
+`VITE_FIREBASE_PROJECT_ID` equals `FIREBASE_PROJECT_ID`. Run it before every
+deployment.
 
 ---
 
-## Security Best Practices
+## Handling Secrets
 
-1. **Never commit secrets to git**
-   - Use `.env.local` for local overrides
-   - Add `*.env*` to `.gitignore`
-
-2. **Use secret management in production**
-   - AWS Secrets Manager
-   - HashiCorp Vault
-   - Kubernetes Secrets
-
-3. **Rotate secrets regularly**
-   - JWT_SECRET: Quarterly
-   - Database passwords: Semi-annually
-   - API keys: Annually
-
-4. **Limit access**
-   - Use different credentials per environment
-   - Principle of least privilege
-
----
-
-*Last updated: December 2024*
-
+- Never commit `.env.prod`. Keep it `chmod 600` on the server.
+- Store `ENCRYPTION_KEY` somewhere other than the server as well. It cannot
+  be recovered from a database backup, and without it every stored
+  integration and AI credential is unreadable.
+- Use different credentials per environment.
+- Rotate on a schedule: database and MinIO passwords semi-annually,
+  third-party API keys annually. Rotating `ENCRYPTION_KEY`
+  requires re-entering the credentials it protects.

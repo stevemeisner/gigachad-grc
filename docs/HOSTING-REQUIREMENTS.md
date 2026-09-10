@@ -154,26 +154,41 @@ re-verified against the repository.
 | No production routing layer: 15 of 53 prefixes routed, zero rewrites | `gateway/nginx.conf` — 53 prefixes, three rewrite classes, longest-prefix matching — is the single public entrypoint, and `docker-compose.prod.yml` has both a `frontend` and a `gateway` service |
 | The frontend container hardcoded `listen 3000` and baked no Firebase config | `frontend/nginx.conf.template` templates `listen ${PORT}`, and `frontend/Dockerfile` takes the three `VITE_FIREBASE_*` values as build arguments, which `docker-compose.prod.yml` passes |
 | Only the controls service had a health endpoint | All six wire the shared `HealthModule`: `/health`, `/health/live`, `/health/ready`. Controls additionally serves `GET /api/system/health` |
+| `POST /api/users` required the person's Firebase UID, so nobody could be invited before their first sign-in | `externalId` is optional. Omitting it stores a `pending:<uuid>` placeholder that the guard claims by verified email on first sign-in, and **Settings → Users** has a create form. Accounts that have never signed in say so |
+| The user list was always empty: the API returns `{users,…}` and six callers read `.data` | Fixed at the type, not per caller. `usersApi.list` declares the real shape. Workspace Settings → Add Member additionally threw, because its fallback yielded the response object and the next line called `.filter` on it |
+| Two readiness scripts that disagreed, one of which aborted after its first check | `deploy/preflight-check.sh` is deleted; its unique host checks are folded into `scripts/validate-production.sh`. That script was itself broken — under `set -e`, `((PASSED++))` returns 1 when the counter is 0, so it exited after one of its 34 checks |
+| The `$24` droplet would have been reported as a hard failure | The ported memory check compares MB against 3500/1900. A 4 GB droplet reports ~3936 MB, which integer-divided to `3` under the old whole-GB test and failed an 8 GB floor |
+| `VITE_ALLOWED_EMAIL_DOMAIN` could never take effect | `ARG` in `frontend/Dockerfile` and a build arg in `docker-compose.prod.yml`, verified present in rendered `docker compose config` output |
+| `ENCRYPTION_KEY`, `CORS_ORIGINS` and the whole email configuration reached no container | Forwarded: the first two to all six services, the email block to `controls`, which is the only service that sends mail |
+| `deploy/env.example` advertised `BACKUP_S3_*` variables that no code reads | Corrected to the `DR_REMOTE_BACKUP_*` names `deploy/backup.sh` actually reads. An operator following the template would have configured nothing |
+| Email misconfiguration failed silently | Every incomplete provider config fell back to console logging with only a `logger.warn`, and an unrecognised `EMAIL_PROVIDER` value silently became `smtp`. `validate:production` now fails on console-in-production, on a missing provider variable, and on an unrecognised provider name |
 
 ---
 
 ## Still outstanding
 
-In rough priority order. None of these block a first single-VM deployment
-except where stated.
+Two items, neither of which blocks a first single-VM deployment.
 
 | # | Work | Why it matters | Rough effort |
 |---|---|---|---|
-| 1 | Fix `deploy/preflight-check.sh` | It still lists two admin credentials for the removed identity server among its required variables, and hard-fails when the deleted `auth/` configuration export is absent — so the script now always reports failure. Use `npm run validate:production` instead, which checks the Firebase variables and the `AUTH_MODE`/`NODE_ENV` combination | 1 hour |
-| 2 | Settle on one production env filename | `deploy/env.example` says to copy it to `.env`, but `deploy/backup.sh`, `deploy/restore.sh` and `scripts/validate-production.sh` read `.env.prod`, and `docker-compose.prod.yml` mounts `./.env.prod` into the backup scheduler. The runbook works around this with a symlink; it should not need to | 1 hour |
-| 3 | Pre-provisioning users from the UI | `POST /api/users` requires `externalId` — the person's Firebase UID — so an administrator cannot invite someone by email alone. The workaround is a SQL insert with a placeholder `external_id`, which the guard rewrites on first sign-in. A real invite flow does not exist | 1–2 days |
-| 4 | Pass `VITE_ALLOWED_EMAIL_DOMAIN` to production builds | It is read by `frontend/src/contexts/AuthContext.tsx` but is neither an `ARG` in `frontend/Dockerfile` nor a build arg in `docker-compose.prod.yml`, so a compose-built image cannot pre-filter the Google account chooser. Cosmetic only — it restricts nothing by itself | 1 hour |
-| 5 | Make more than one replica safe | Blocks horizontal scaling, nothing else. `ThrottlerModule` (`services/controls/src/app.module.ts`) has no shared storage, so the effective rate limit multiplies by replica count, and the other five services register no throttler at all. Two schedulers in controls (`collectors.scheduler.ts`, `scheduled-notifications.service.ts`) run from `setInterval` and would fire once per replica. The fix is a PostgreSQL advisory lock per tick, not new infrastructure | 1 day |
-| 6 | Bring the rest of the deployment docs forward | `docs/DEPLOYMENT.md`, `docs/PRODUCTION_DEPLOYMENT.md`, `docs/CONFIGURATION.md`, `docs/ENV_CONFIGURATION.md`, `docs/SECURITY_MODEL.md`, `deploy/README.md`, `deploy/QUICKSTART.md`, `deploy/DEPLOYMENT_CHECKLIST.md` and `docs/help/admin/system-health.md` still describe the removed identity server or the removed development guard | Half a day |
-| 7 | Email delivery | With `EMAIL_PROVIDER=console` (the value in `deploy/env.example`) notification emails are logged, not sent; with the code's `smtp` fallback and no `SMTP_*` values they fail. Choose `smtp`, `sendgrid` or `ses` and configure it | 1 hour, plus a provider account |
+| 1 | Choose and configure an email provider | `deploy/env.example` ships `EMAIL_PROVIDER=console`, which writes notification emails to the container log instead of sending them. `npm run validate:production` now refuses to pass with that combination under `NODE_ENV=production`, so it cannot be missed — but somebody still has to pick `smtp`, `sendgrid` or `ses` and supply its credentials. This is a decision plus an account, not development work | 1 hour, plus a provider account |
+| 2 | Make more than one replica safe | Blocks horizontal scaling, nothing else, and the single-VM deployment runs one of each. `ThrottlerModule` (`services/controls/src/app.module.ts`) has no shared storage, so the effective rate limit would multiply by replica count, and the other five services register no throttler at all. Two schedulers in controls (`collectors.scheduler.ts`, `scheduled-notifications.service.ts`) run from `setInterval` and would fire once per replica. The fix is a PostgreSQL advisory lock per tick, not new infrastructure. `docker-compose.prod.yml` carries a comment where a `replicas` block would go | 1 day |
 
-**A first deployment is now hours, not weeks** — the remaining work above is
-either operational tidying or scale headroom.
+Smaller things a reviewer should know about, none of them blocking:
+
+- `POST /api/users` still requires `firstName` and `lastName` (the columns are
+  `NOT NULL`), so an invitation is name-plus-email, not email alone.
+- `role` is validated as a string and cast to the Prisma enum on write, so a
+  hand-crafted request with a bogus role fails at the database rather than at
+  validation. The UI only offers valid values.
+- `services/controls/src/permissions/dto/permission.dto.ts` still exposes a raw
+  `externalId` on the group-members route, so a `pending:` placeholder can leave
+  the API there. Nothing renders it.
+- `hasSignedIn` derives from `lastLoginAt`, which the guard writes
+  fire-and-forget with `.catch(() => undefined)`. If that write fails, a real
+  user keeps showing the "has not signed in" line until the next request.
+
+**A first deployment is now hours, not weeks.**
 
 ---
 

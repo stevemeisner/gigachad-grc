@@ -62,7 +62,7 @@ cd gigachad-grc
 
 # Configure environment
 cp deploy/env.example .env
-# Edit .env - at minimum POSTGRES_PASSWORD, MINIO_ROOT_PASSWORD, JWT_SECRET,
+# Edit .env - at minimum POSTGRES_PASSWORD, MINIO_ROOT_PASSWORD,
 # ENCRYPTION_KEY, FIREBASE_PROJECT_ID, ALLOWED_EMAIL_DOMAINS and the
 # VITE_FIREBASE_* values the frontend is built with
 

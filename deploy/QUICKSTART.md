@@ -1,350 +1,213 @@
-# GigaChad GRC - Production Deployment Quick Start
-
-A quick reference guide for deploying GigaChad GRC to production.
-
-## Quick Deployment Steps
-
-### 1. Initial Setup (5-10 minutes)
-
-```bash
-# Clone repository
-cd /opt
-git clone https://github.com/yourusername/gigachad-grc.git
-cd gigachad-grc
-
-# Configure environment
-cp deploy/env.example .env.prod
-nano .env.prod  # Update all CHANGE_ME values
-chmod 600 .env.prod
-
-# Update domain settings
-# - APP_DOMAIN=your-domain.com
-# - ACME_EMAIL=admin@your-domain.com
-# - MINIO_DOMAIN=storage.your-domain.com
-#
-# Set the authentication values (Firebase, Google sign-in only):
-# - FIREBASE_PROJECT_ID, ALLOWED_EMAIL_DOMAINS
-# - VITE_FIREBASE_API_KEY, VITE_FIREBASE_AUTH_DOMAIN, VITE_FIREBASE_PROJECT_ID
-#   (build-time: the frontend image must be rebuilt if these change)
-# - leave AUTH_MODE unset
-```
-
-### 2. Generate Secrets (2 minutes)
-
-```bash
-# Generate the secrets .env.prod needs
-echo "POSTGRES_PASSWORD=$(openssl rand -base64 32)"  | tee -a /tmp/secrets.txt
-echo "MINIO_ROOT_PASSWORD=$(openssl rand -base64 20)" | tee -a /tmp/secrets.txt
-echo "JWT_SECRET=$(openssl rand -base64 64)"          | tee -a /tmp/secrets.txt
-echo "SESSION_SECRET=$(openssl rand -base64 64)"      | tee -a /tmp/secrets.txt
-echo "ENCRYPTION_KEY=$(openssl rand -hex 32)"         | tee -a /tmp/secrets.txt
-
-# Copy them into .env.prod, then delete the scratch file
-shred -u /tmp/secrets.txt 2>/dev/null || rm -f /tmp/secrets.txt
-```
-
-### 2b. Validate Before Deploying (1 minute)
-
-```bash
-./deploy/preflight-check.sh
-npm run validate:production
-```
-
-### 3. Deploy (5-10 minutes)
-
-```bash
-# Build and start services
-docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
-
-# Check status
-docker compose -f docker-compose.prod.yml ps
-
-# View logs
-docker compose -f docker-compose.prod.yml logs -f
-```
-
-### 4. Post-Deployment (5 minutes)
-
-```bash
-# Apply the database schema
-./deploy/db-migrate.sh migrate
-
-# Create the first administrator
-# Nothing creates it for you: signing in with Google proves identity but
-# grants nothing until a users row exists. See docs/DEPLOYMENT-RUNBOOK.md.
-
-# Verify the edge is up
-curl -fsS https://your-domain.com/healthz          # gateway liveness
-curl -fsS https://your-domain.com/api/system/health # controls health
-
-# MinIO console is disabled and unrouted by design (MINIO_BROWSER=off,
-# no Traefik router). To use it: set MINIO_BROWSER=on, restart minio, and
-# SSH-tunnel to the container's port 9001 - see deploy/README.md.
-```
-
-## Daily Operations
-
-### View Logs
-
-```bash
-# All services
-docker compose -f docker-compose.prod.yml logs -f
-
-# Specific service
-docker compose -f docker-compose.prod.yml logs -f controls
-
-# Last 100 lines
-docker compose -f docker-compose.prod.yml logs --tail=100
-```
-
-### Check Status
-
-```bash
-# All services
-docker compose -f docker-compose.prod.yml ps
-
-# Service health
-docker compose -f docker-compose.prod.yml exec controls wget -O- http://localhost:3001/health
-```
-
-### Restart Services
-
-```bash
-# All services
-docker compose -f docker-compose.prod.yml restart
-
-# Specific service
-docker compose -f docker-compose.prod.yml restart controls
-
-# Rebuild and restart
-docker compose -f docker-compose.prod.yml up -d --build controls
-```
-
-## Backup & Restore
-
-### Create Backup
-
-```bash
-# Run backup script
-./deploy/backup.sh
-
-# Backup is stored in: /backups/gigachad-grc/backup-YYYY-MM-DD-HHMMSS.tar.gz
-```
-
-### Schedule Automatic Backups
-
-```bash
-# Edit crontab
-crontab -e
-
-# Add daily backup at 2 AM
-0 2 * * * /opt/gigachad-grc/deploy/backup.sh >> /var/log/grc-backup.log 2>&1
-```
-
-### Restore from Backup
-
-```bash
-# Stop services
-docker compose -f docker-compose.prod.yml down
-
-# Restore
-./deploy/restore.sh /backups/gigachad-grc/backup-YYYY-MM-DD-HHMMSS.tar.gz
-
-# Services will be automatically restarted
-```
-
-## Troubleshooting
-
-### Services Won't Start
-
-```bash
-# Check logs
-docker compose -f docker-compose.prod.yml logs
-
-# Check disk space
-df -h
-
-# Check memory
-free -h
-
-# Restart Docker
-sudo systemctl restart docker
-```
-
-### Database Issues
-
-```bash
-# Check PostgreSQL status
-docker compose -f docker-compose.prod.yml exec postgres pg_isready
-
-# Connect to database
-docker compose -f docker-compose.prod.yml exec postgres psql -U $POSTGRES_USER -d $POSTGRES_DB
-
-# View active connections
-docker compose -f docker-compose.prod.yml exec postgres psql -U $POSTGRES_USER -d $POSTGRES_DB -c "SELECT * FROM pg_stat_activity;"
-```
-
-### SSL Certificate Issues
-
-```bash
-# Check Traefik logs
-docker compose -f docker-compose.prod.yml logs traefik | grep -i certificate
-
-# Verify DNS
-dig your-domain.com
-
-# Test SSL
-openssl s_client -connect your-domain.com:443
-```
-
-### High Resource Usage
-
-```bash
-# Check container stats
-docker stats
-
-# Check disk usage
-docker system df
-
-# Clean up unused resources
-docker system prune -a
-```
-
-## Maintenance
-
-### Update Application
-
-```bash
-# Backup first
-./deploy/backup.sh
-
-# Pull latest code
-git pull origin main
-
-# Rebuild and restart
-docker compose -f docker-compose.prod.yml up -d --build
-```
-
-### Database Maintenance
-
-```bash
-# Vacuum database
-docker compose -f docker-compose.prod.yml exec postgres vacuumdb -U $POSTGRES_USER -d $POSTGRES_DB --analyze
-
-# Check database size
-docker compose -f docker-compose.prod.yml exec postgres psql -U $POSTGRES_USER -d $POSTGRES_DB -c "SELECT pg_size_pretty(pg_database_size('$POSTGRES_DB'));"
-```
-
-### Clean Up Old Data
-
-```bash
-# Remove old Docker images
-docker image prune -a
-
-# Remove old backups (older than 30 days)
-find /backups/gigachad-grc/ -name "backup-*.tar.gz" -mtime +30 -delete
-
-# Remove old logs
-find /var/log/ -name "grc-*.log" -mtime +30 -delete
-```
-
-## Security Checklist
-
-- [ ] All default passwords changed
-- [ ] SSL/TLS certificates configured
-- [ ] Firewall enabled (ports 80, 443, 22 only)
-- [ ] Backups configured and tested
-- [ ] Monitoring setup
-- [ ] Log aggregation configured
-- [ ] Regular security updates scheduled
-- [ ] Access logs reviewed regularly
-- [ ] Incident response plan documented
-
-## Monitoring Endpoints
-
-- **Application**: https://your-domain.com
-- **S3 API (MinIO)**: https://storage.your-domain.com
-- **Gateway liveness**: https://your-domain.com/healthz
-- **Application health**: https://your-domain.com/api/system/health
-- **Per-service health** (internal only): `GET /health` on 3001, 3002, 3004, 3005, 3006, 3007
-
-Sign-in is Firebase Authentication (Google), hosted by Google - there is no
-auth host of your own. The MinIO console is disabled and unrouted by default.
-
-## Useful Commands
-
-```bash
-# View environment variables
-docker compose -f docker-compose.prod.yml config
-
-# Execute command in container
-docker compose -f docker-compose.prod.yml exec controls sh
-
-# Copy files from container
-docker cp grc-controls:/app/logs ./logs
-
-# View resource usage
-docker stats --no-stream
-
-# Check network connectivity
-docker compose -f docker-compose.prod.yml exec controls ping postgres
-```
-
-## Emergency Procedures
-
-### Service Down
-
-```bash
-# 1. Check service status
-docker compose -f docker-compose.prod.yml ps
-
-# 2. Check logs
-docker compose -f docker-compose.prod.yml logs [service]
-
-# 3. Restart service
-docker compose -f docker-compose.prod.yml restart [service]
-
-# 4. If restart fails, rebuild
-docker compose -f docker-compose.prod.yml up -d --build [service]
-```
-
-### Database Corruption
-
-```bash
-# 1. Stop all services
-docker compose -f docker-compose.prod.yml down
-
-# 2. Restore from latest backup
-./deploy/restore.sh /backups/gigachad-grc/backup-[latest].tar.gz
-
-# 3. Verify restoration
-docker compose -f docker-compose.prod.yml logs -f
-```
-
-### Out of Disk Space
-
-```bash
-# 1. Check disk usage
-df -h
-docker system df
-
-# 2. Clean Docker resources
-docker system prune -a --volumes
-
-# 3. Remove old backups
-find /backups -mtime +7 -delete
-
-# 4. Clean logs
-truncate -s 0 /var/log/*.log
-```
-
-## Support Contacts
-
-- **Technical Support**: support@example.com
-- **Emergency**: +1-XXX-XXX-XXXX
-- **Documentation**: https://docs.example.com
-- **GitHub Issues**: https://github.com/yourusername/gigachad-grc/issues
+# Production Deployment Quick Start
+
+A condensed command reference for someone who has deployed this application
+before. If this is the first time, follow
+[docs/DEPLOYMENT-RUNBOOK.md](../docs/DEPLOYMENT-RUNBOOK.md) instead — it is
+the authoritative procedure and explains what each step is for.
+
+Every compose command needs `--env-file .env.prod`. There is no `.env` in a
+production deployment, so a command without it will fail to interpolate
+`APP_DOMAIN`, the database password and everything else.
 
 ---
 
-**For detailed documentation, see**: [deploy/README.md](./README.md)
+## 1. Clone and configure
+
+```bash
+cd /opt
+git clone https://github.com/rajkrishnamurthy/gigachad-grc.git
+cd gigachad-grc
+
+cp deploy/env.example .env.prod
+chmod 600 .env.prod
+nano .env.prod
+```
+
+Set, at minimum:
+
+- `APP_DOMAIN`, `ACME_EMAIL`, `CORS_ORIGINS`
+- `POSTGRES_PASSWORD`, `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`
+- `ENCRYPTION_KEY`
+- `FIREBASE_PROJECT_ID`, `ALLOWED_EMAIL_DOMAINS`
+- `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`,
+  `VITE_FIREBASE_PROJECT_ID` — build-time; changing one later means
+  rebuilding the frontend image
+- leave `AUTH_MODE` unset
+
+Generate the secrets:
+
+```bash
+openssl rand -base64 32   # POSTGRES_PASSWORD
+openssl rand -base64 32   # MINIO_ROOT_PASSWORD
+openssl rand -hex 32      # ENCRYPTION_KEY  (must be >= 32 characters)
+```
+
+Keep a copy of `ENCRYPTION_KEY` somewhere other than this server. It cannot
+be recovered from a database backup, and without it every stored integration
+credential is unreadable.
+
+## 2. Validate
+
+```bash
+npm run validate:production
+```
+
+## 3. Start the database, then apply the schema
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d postgres
+docker compose -f docker-compose.prod.yml --env-file .env.prod ps postgres   # wait for healthy
+```
+
+The schema is applied with `prisma db push` from a throwaway container on the
+same network — see
+[Deployment Runbook §7.2](../docs/DEPLOYMENT-RUNBOOK.md#72-apply-the-schema)
+for the exact commands. Do not use `prisma migrate deploy`, and ignore
+`deploy/db-migrate.sh`: this repository ships no baseline migration, so there
+is nothing for it to apply.
+
+## 4. Build and start everything
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+docker compose -f docker-compose.prod.yml --env-file .env.prod ps
+```
+
+The first build takes 25-60 minutes on a small VM.
+
+## 5. Create the first administrator
+
+Nothing creates it for you. Signing in with Google proves identity; it grants
+nothing until a `users` row exists. The SQL is in
+[Deployment Runbook §6](../docs/DEPLOYMENT-RUNBOOK.md#6-create-the-first-administrator).
+
+## 6. Verify
+
+```bash
+curl -fsS https://your-domain.com/healthz             # gateway liveness
+curl -fsS https://your-domain.com/api/system/health   # controls service health
+```
+
+Then sign in through the browser.
+
+---
+
+## Daily operations
+
+```bash
+# Logs
+docker compose -f docker-compose.prod.yml --env-file .env.prod logs -f
+docker compose -f docker-compose.prod.yml --env-file .env.prod logs -f controls
+docker compose -f docker-compose.prod.yml --env-file .env.prod logs --tail=100 controls
+
+# Status
+docker compose -f docker-compose.prod.yml --env-file .env.prod ps
+
+# Health of one service, from inside the network
+docker compose -f docker-compose.prod.yml --env-file .env.prod \
+  exec -T gateway wget -qO- http://controls:3001/health
+
+# Restart
+docker compose -f docker-compose.prod.yml --env-file .env.prod restart controls
+
+# Rebuild one service without touching the rest
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --no-deps --build controls
+```
+
+## Backup and restore
+
+```bash
+# Take a backup: PostgreSQL dump plus the MinIO data, archived together.
+./deploy/backup.sh                       # default /backups/gigachad-grc
+./deploy/verify-backup.sh                # check an archive is intact
+
+# Restore. This stops the stack and discards current data - back up first.
+./deploy/restore.sh /backups/gigachad-grc/backup-YYYY-MM-DD-HHMMSS.tar.gz
+```
+
+The `backup-scheduler` container already runs `deploy/backup.sh` on a
+schedule (`deploy/cron/backup-crontab`) and prunes archives older than
+`BACKUP_RETENTION_DAYS`. Add a host crontab entry only if you have disabled
+that container.
+
+Copy archives off the machine. A backup on the disk you are backing up is
+not a backup.
+
+## Troubleshooting
+
+```bash
+# Services will not start: read the logs, then check the host.
+docker compose -f docker-compose.prod.yml --env-file .env.prod logs
+df -h
+free -h
+```
+
+The gateway waits for the frontend and all six services to report healthy. If
+it stays in `created`, one of its dependencies is unhealthy — look there.
+
+```bash
+# Database
+docker compose -f docker-compose.prod.yml --env-file .env.prod exec postgres pg_isready -U grc
+docker compose -f docker-compose.prod.yml --env-file .env.prod exec postgres \
+  psql -U grc -d gigachad_grc -c "SELECT * FROM pg_stat_activity;"
+
+# Certificates
+docker compose -f docker-compose.prod.yml --env-file .env.prod logs traefik | grep -i certificate
+dig +short your-domain.com
+openssl s_client -connect your-domain.com:443 </dev/null
+
+# Resource usage
+docker stats --no-stream
+docker system df
+```
+
+Sign-in failures each carry their own message and cause;
+[Deployment Runbook §8](../docs/DEPLOYMENT-RUNBOOK.md#8-verify-sign-in-end-to-end)
+maps every one of them.
+
+## Maintenance
+
+```bash
+# Update
+./deploy/backup.sh
+git pull origin main
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+
+# Database housekeeping
+docker compose -f docker-compose.prod.yml --env-file .env.prod exec postgres \
+  vacuumdb -U grc -d gigachad_grc --analyze
+docker compose -f docker-compose.prod.yml --env-file .env.prod exec postgres \
+  psql -U grc -d gigachad_grc -c "SELECT pg_size_pretty(pg_database_size('gigachad_grc'));"
+```
+
+### Reclaiming disk
+
+```bash
+docker image prune -f        # dangling images only
+find /backups/gigachad-grc/ -name 'backup-*.tar.gz' -mtime +30 -delete
+```
+
+> Never run `docker system prune --volumes` on this host. The database and
+> the object store live in Docker volumes (`postgres_data`, `minio_data`);
+> that command deletes them.
+
+## Endpoints
+
+| What | URL |
+|---|---|
+| Application | `https://your-domain.com` |
+| Gateway liveness | `https://your-domain.com/healthz` |
+| Application health | `https://your-domain.com/api/system/health` |
+| S3 API (MinIO) | `https://storage.your-domain.com`, only if you created that DNS record |
+| Per-service health | `GET /health` on 3001, 3002, 3004, 3005, 3006, 3007 — internal network only |
+
+Sign-in is Firebase Authentication with Google, hosted by Google: there is no
+authentication host of your own to monitor. The MinIO console is disabled and
+unrouted by default (`MINIO_BROWSER=off`); reach it by SSH tunnel if you must,
+as described in [README.md](./README.md).
+
+---
+
+For the full procedure see
+[docs/DEPLOYMENT-RUNBOOK.md](../docs/DEPLOYMENT-RUNBOOK.md); for what is in
+this directory see [README.md](./README.md).

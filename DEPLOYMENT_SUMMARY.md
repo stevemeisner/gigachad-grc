@@ -191,7 +191,6 @@ chmod 600 .env.prod
 # Edit .env.prod with your configuration
 
 # Validate before deploying
-./deploy/preflight-check.sh
 npm run validate:production
 
 # Deploy
@@ -214,13 +213,13 @@ Deployment time: **5-10 minutes**
 - **Terraform**: ~3,200 lines across 6 modules (vpc, security-groups, alb, rds, s3, ecs)
 - **Docker Compose**: `docker-compose.prod.yml` production configuration
 - **Documentation**: deployment guide, quick start and checklist under `deploy/`, plus `docs/DEPLOYMENT-RUNBOOK.md`
-- **Scripts**: `deploy/` automation (preflight, entrypoint, migrations, backup, verify-backup, restore)
+- **Scripts**: `deploy/` automation (entrypoint, migrations, backup, verify-backup, restore)
 
 ### File Count
 - **Terraform files**: 22 (`*.tf` plus `terraform.tfvars.example`)
 - **Docker Compose files**: 3 (`docker-compose.yml`, `docker-compose.dev.yml`, `docker-compose.prod.yml`)
 - **Deploy documentation files**: 3 (`README.md`, `QUICKSTART.md`, `DEPLOYMENT_CHECKLIST.md`)
-- **Deploy scripts**: 6 (`preflight-check.sh`, `docker-entrypoint.sh`, `db-migrate.sh`, `backup.sh`, `verify-backup.sh`, `restore.sh`)
+- **Deploy scripts**: 5 (`docker-entrypoint.sh`, `db-migrate.sh`, `backup.sh`, `verify-backup.sh`, `restore.sh`)
 
 ---
 
@@ -372,7 +371,6 @@ gigachad-grc/
     ├── QUICKSTART.md                 # Quick reference
     ├── DEPLOYMENT_CHECKLIST.md       # Step-by-step checklist
     ├── env.example                   # Environment template (copy to .env.prod)
-    ├── preflight-check.sh            # Pre-deployment validation
     ├── docker-entrypoint.sh          # Container entrypoint (migrations, checks)
     ├── db-migrate.sh                 # Migration management
     ├── backup.sh                     # Automated backup script

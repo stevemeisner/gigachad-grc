@@ -107,7 +107,6 @@ nano .env.prod  # Update all CHANGE_ME values
 Required changes:
 - [ ] `POSTGRES_PASSWORD` - Use 32+ character random password
 - [ ] `MINIO_ROOT_PASSWORD` - Use 32+ character random password
-- [ ] `JWT_SECRET` - 64 characters (`openssl rand -base64 64`)
 - [ ] `ENCRYPTION_KEY` - 32+ characters; encrypts stored integration credentials
 - [ ] `FIREBASE_PROJECT_ID` and `ALLOWED_EMAIL_DOMAINS` - which Google accounts may sign in
 
@@ -139,7 +138,7 @@ MINIO_BROWSER=off
 # the auth guard refuses to start when NODE_ENV=production.
 ```
 
-Then run `./deploy/preflight-check.sh` and `npm run validate:production`.
+Then run `npm run validate:production`.
 
 ### 3. Use Secrets Manager (Recommended)
 
@@ -200,7 +199,7 @@ Update Traefik configuration for HTTPS.
 Set up credential rotation schedule:
 - PostgreSQL: Every 90 days
 - MinIO: Every 90 days
-- `JWT_SECRET` / `ENCRYPTION_KEY`: Every 90 days (rotating `ENCRYPTION_KEY`
+- `ENCRYPTION_KEY`: Every 90 days (rotating `ENCRYPTION_KEY`
   requires re-encrypting stored integration credentials)
 - Integration API keys: Every 30 days
 

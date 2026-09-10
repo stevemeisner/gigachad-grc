@@ -43,9 +43,14 @@ You can configure modules in two layers:
 | People | `VITE_ENABLE_PEOPLE_MODULE` | `true` |
 | AI | `VITE_ENABLE_AI_MODULE` | `false` |
 | Tools | `VITE_ENABLE_TOOLS_MODULE` | `true` |
+| Config as Code | `VITE_ENABLE_CONFIG_AS_CODE_MODULE` | `true` |
 
-> **Note:** If an organization has a saved module configuration, it takes precedence
-> over the defaults above for that organization.
+> These are **build-time** values: Vite compiles them into the bundle, and
+> `docker-compose.prod.yml` passes only a fixed set of `VITE_*` build
+> arguments through to `frontend/Dockerfile`. To use one of these in a
+> container build, add it in both places. If an organization has a saved
+> module configuration, it takes precedence over these defaults for that
+> organization.
 
 ---
 
@@ -53,11 +58,11 @@ You can configure modules in two layers:
 
 ### Quick Reference
 
-Copy `deploy/env.example` to `.env` and configure:
+Copy `deploy/env.example` to `.env.prod` and configure:
 
 ```bash
-cp deploy/env.example .env
-chmod 600 .env  # Restrict permissions
+cp deploy/env.example .env.prod
+chmod 600 .env.prod  # Restrict permissions
 ```
 
 ### Complete Variable Reference
@@ -80,8 +85,6 @@ chmod 600 .env  # Restrict permissions
 | `POSTGRES_PASSWORD` | Yes | - | Database password (min 16 chars recommended) |
 | `POSTGRES_DB` | Yes | `gigachad_grc` | Database name |
 | `DATABASE_URL` | Auto | - | Full connection string (auto-generated) |
-| `DATABASE_POOL_MIN` | No | `5` | Minimum pool connections |
-| `DATABASE_POOL_MAX` | No | `20` | Maximum pool connections |
 
 **Connection String Format**:
 ```
@@ -115,21 +118,29 @@ postgresql://USER:PASSWORD@HOST:PORT/DATABASE
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `JWT_SECRET` | Yes | - | JWT signing secret (min 64 chars) |
-| `CORS_ORIGINS` | No | - | Allowed CORS origins (comma-separated) |
+| `ENCRYPTION_KEY` | Yes | - | Encrypts stored integration and MCP credentials with AES-256-GCM. At least 32 characters, or the integrations service refuses to start. Not recoverable from a database backup |
+| `CORS_ORIGINS` | No | localhost origins | Allowed browser origins, comma-separated, scheme included. In production an unset value only logs a warning and falls back to localhost, which will not work |
 
-**Generate JWT Secret**:
 ```bash
-openssl rand -base64 64 | tr -d '\n'
+openssl rand -hex 32     # ENCRYPTION_KEY
 ```
+
+The application holds no signing secret. Sign-in is Firebase, and the API
+verifies Google-issued RS256 ID tokens against Google's JWKS with the issuer
+and audience pinned to `FIREBASE_PROJECT_ID`.
 
 #### Rate Limiting
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `RATE_LIMIT_ENABLED` | No | `true` | Enable rate limiting |
-| `RATE_LIMIT_MAX` | No | `100` | Max requests per window |
-| `RATE_LIMIT_WINDOW_MS` | No | `60000` | Window duration (ms) |
+| `RATE_LIMIT_ENABLED` | No | `true` | Read only by the in-app production-readiness report. It does not switch the throttler off |
+
+The limits themselves are not configurable by environment. The controls
+service applies `@nestjs/throttler` with fixed tiers (5 per second, 30 per
+10 seconds, 100 per minute) declared in
+`services/controls/src/app.module.ts`, and Traefik applies an average-200 /
+burst-100 middleware to the gateway router. `RATE_LIMIT_MAX` and
+`RATE_LIMIT_WINDOW_MS` are read by no service; setting them changes nothing.
 
 #### TLS/SSL (Let's Encrypt)
 
@@ -143,71 +154,63 @@ openssl rand -base64 64 | tr -d '\n'
 |----------|----------|---------|-------------|
 | `TRAEFIK_LOG_LEVEL` | No | `WARN` | Log level: `DEBUG`, `INFO`, `WARN`, `ERROR` |
 
-#### Email/SMTP (Optional)
+#### Email Notifications
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `SMTP_HOST` | No | - | SMTP server hostname |
+| `EMAIL_PROVIDER` | No | `smtp` | `console`, `smtp`, `sendgrid` or `ses`. `console` logs each message instead of sending it |
+| `EMAIL_FROM` | No | `noreply@gigachad-grc.com` | From address |
+| `EMAIL_FROM_NAME` | No | `GigaChad GRC` | From display name |
+| `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS` | With `EMAIL_PROVIDER=smtp` | - | SMTP server and credentials |
 | `SMTP_PORT` | No | `587` | SMTP port |
-| `SMTP_USER` | No | - | SMTP username |
-| `SMTP_PASSWORD` | No | - | SMTP password |
-| `SMTP_FROM` | No | - | From address |
-| `SMTP_SECURE` | No | `true` | Use TLS |
+| `SMTP_SECURE` | No | `false` | Use an implicit TLS connection |
+| `SENDGRID_API_KEY` | With `EMAIL_PROVIDER=sendgrid` | - | SendGrid API key |
+| `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | With `EMAIL_PROVIDER=ses` | `us-east-1` for the region | SES credentials |
 
-#### Monitoring (Optional)
+> An unset `EMAIL_PROVIDER` means `smtp`, and an unrecognised value is
+> treated as `smtp` as well. If the selected provider's configuration is
+> incomplete, the email service falls back to console mode: messages are
+> written to the log and never sent, without raising an error.
+> `npm run validate:production` checks for that combination.
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `METRICS_ENABLED` | No | `false` | Enable Prometheus metrics |
-| `METRICS_PORT` | No | `9090` | Metrics port |
-| `SENTRY_DSN` | No | - | Sentry error tracking DSN |
+#### AI (Optional)
 
-#### AI Configuration (Optional)
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `AI_PROVIDER` | No | `disabled` | AI provider: `openai`, `anthropic`, `disabled` |
-| `OPENAI_API_KEY` | No | - | OpenAI API key (starts with `sk-`) |
-| `OPENAI_MODEL` | No | `gpt-5` | OpenAI model: `gpt-5`, `gpt-5-mini`, `o3`, `o3-mini`, `gpt-4o` |
-| `ANTHROPIC_API_KEY` | No | - | Anthropic API key (starts with `sk-ant-`) |
-| `ANTHROPIC_MODEL` | No | `claude-opus-4-5-20250514` | Anthropic model: `claude-opus-4-5-20250514`, `claude-sonnet-4-20250514`, `claude-3-5-sonnet-20241022`, `claude-3-5-haiku-20241022` |
-| `AI_TEMPERATURE` | No | `0.3` | AI response temperature (0-2) |
-| `AI_MAX_TOKENS` | No | `4096` | Maximum tokens for AI responses |
-
-**AI Features** (enable/disable in UI at Settings → AI Configuration):
-- Risk Scoring - AI-suggested risk likelihood and impact
-- Auto-Categorization - Automatic categorization and tagging
-- Smart Search - Natural language search across all modules
-- Policy Drafting - Generate policy drafts from requirements
-- Control Suggestions - Recommend controls for risks
-
-#### MCP Server Configuration (Optional)
+The AI provider API keys are environment variables and nothing else: there
+is no field for them in the UI and they are not stored in the database.
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `MCP_ENABLED` | No | `false` | Enable MCP server integration |
-| `MCP_EVIDENCE_SERVER` | No | - | Path to GRC Evidence Collection MCP server |
-| `MCP_COMPLIANCE_SERVER` | No | - | Path to GRC Compliance Automation MCP server |
-| `MCP_AI_ASSISTANT_SERVER` | No | - | Path to GRC AI Assistant MCP server |
-| `GITHUB_TOKEN` | No | - | GitHub token for MCP GitHub evidence collection |
-| `OKTA_ORG_URL` | No | - | Okta org URL for MCP Okta evidence collection |
-| `OKTA_API_TOKEN` | No | - | Okta API token for MCP Okta evidence collection |
-| `AZURE_SUBSCRIPTION_ID` | No | - | Azure subscription ID for MCP Azure evidence |
+| `OPENAI_API_KEY` | No | - | OpenAI API key |
+| `OPENAI_MODEL` | No | `gpt-4o` | OpenAI model |
+| `ANTHROPIC_API_KEY` | No | - | Anthropic API key |
+| `ANTHROPIC_MODEL` | No | `claude-3-5-sonnet-20241022` | Anthropic model |
 
-**MCP Servers Available**:
-- **grc-evidence** - Automated evidence collection from AWS, Azure, GitHub, Okta, Google Workspace, Jamf
-- **grc-compliance** - Compliance automation for SOC 2, ISO 27001, HIPAA, GDPR checks
-- **grc-ai-assistant** - AI-powered risk analysis, control suggestions, policy drafting
+The per-organization AI settings saved in the UI (Settings → AI
+Configuration) are the provider, model, enabled flag, temperature and token
+ceiling — no credential. A saved model name overrides `OPENAI_MODEL` /
+`ANTHROPIC_MODEL` for that organization.
 
-#### Backup Configuration
+#### Backups
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `BACKUP_RETENTION_DAYS` | No | `30` | Backup retention period |
-| `BACKUP_S3_BUCKET` | No | - | S3 bucket for backups |
-| `BACKUP_S3_REGION` | No | - | S3 region |
-| `BACKUP_S3_ACCESS_KEY` | No | - | S3 access key |
-| `BACKUP_S3_SECRET_KEY` | No | - | S3 secret key |
+| `BACKUP_RETENTION_DAYS` | No | `30` | How long archives are kept |
+| `BACKUP_COMPRESSION_LEVEL` | No | `6` | gzip level used by `deploy/backup.sh` |
+| `DR_REMOTE_BACKUP_ENABLED` | No | `false` | Copy each archive to S3 after it is written |
+| `DR_REMOTE_BACKUP_S3_BUCKET` | With remote backup | - | Destination bucket |
+| `DR_REMOTE_BACKUP_REGION` | No | `us-east-1` | Destination region |
+
+The backup directory is the first argument to `deploy/backup.sh`, not an
+environment variable; it defaults to `/backups/gigachad-grc`.
+
+#### Not environment variables
+
+- **Credentials for third-party evidence integrations** — GitHub, Okta, AWS,
+  Azure, Keycloak and the rest of the connectors the product collects
+  evidence *from*. These are entered under Settings → Integrations and
+  stored encrypted.
+- **MCP server definitions** — hard-coded in
+  `services/controls/src/mcp/mcp-servers.config.ts`.
 
 ---
 
@@ -233,7 +236,6 @@ environment:
   ALLOWED_EMAIL_DOMAINS: ${ALLOWED_EMAIL_DOMAINS}
   AUTH_AUTO_PROVISION: ${AUTH_AUTO_PROVISION:-false}
   AUTH_DEFAULT_ORG_ID: ${AUTH_DEFAULT_ORG_ID}
-  JWT_SECRET: ${JWT_SECRET}
   LOG_LEVEL: ${LOG_LEVEL:-info}
   RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
   RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-100}
@@ -250,7 +252,6 @@ Each service accepts:
 | `DATABASE_URL` | PostgreSQL connection string |
 | `MINIO_*` | MinIO configuration |
 | `FIREBASE_PROJECT_ID`, `ALLOWED_EMAIL_DOMAINS`, `AUTH_AUTO_PROVISION`, `AUTH_DEFAULT_ORG_ID` | Authentication settings read by `FirebaseAuthGuard` |
-| `JWT_SECRET` | Reserved for internal service-to-service tokens |
 | `LOG_LEVEL` | Logging level |
 | `RATE_LIMIT_*` | Rate limiting settings |
 
@@ -325,87 +326,42 @@ the `internal: true` network and are reached only through the gateway. (The
 local `docker-compose.yml` stack is different: there Traefik routes each
 `PathPrefix` straight to a service.)
 
-### Security Headers Middleware
+### Security headers
 
-```yaml
-# Add to dynamic configuration
-http:
-  middlewares:
-    security-headers:
-      headers:
-        frameDeny: true
-        sslRedirect: true
-        browserXssFilter: true
-        contentTypeNosniff: true
-        stsIncludeSubdomains: true
-        stsPreload: true
-        stsSeconds: 31536000
-        customFrameOptionsValue: "SAMEORIGIN"
-        referrerPolicy: "strict-origin-when-cross-origin"
-        contentSecurityPolicy: "default-src 'self'"
-```
+Security headers are not a Traefik middleware here. Each NestJS service
+applies `helmet` in its own `main.ts`, with `contentSecurityPolicy` disabled
+because the services serve API responses rather than documents. The
+frontend's own nginx configuration serves the SPA.
 
 ---
 
 ## Database Configuration
 
-### PostgreSQL Settings
+PostgreSQL 16 runs from the official `postgres:16-alpine` image with its
+default configuration. No `postgresql.conf` is shipped or mounted, and there
+is no PgBouncer: the deployment is a single VM with one replica of each
+service, and Prisma pools connections in-process.
 
-#### `postgresql.conf` Optimizations
+What `docker-compose.prod.yml` does set:
 
-```ini
-# Memory
-shared_buffers = 256MB                # 25% of RAM for dedicated server
-effective_cache_size = 768MB          # 75% of RAM
-work_mem = 16MB                       # Per-operation memory
-maintenance_work_mem = 128MB          # For VACUUM, CREATE INDEX
+| Setting | Value | Why |
+|---|---|---|
+| `POSTGRES_INITDB_ARGS` | `--encoding=UTF8 --locale=en_US.UTF-8` | Applied once, at first initialization |
+| `PGDATA` | `/var/lib/postgresql/data/pgdata` | Subdirectory of the `postgres_data` volume |
+| `shm_size` | 256 MB | The default 64 MB is too small for larger sorts and parallel queries |
+| `read_only` | true | With `/tmp` and `/run/postgresql` as tmpfs |
+| Memory limit | 1536 MB | Reservation 512 MB |
 
-# Connections
-max_connections = 200
-superuser_reserved_connections = 3
+Two volumes hold state: `postgres_data` (the cluster) and `postgres_backups`
+(mounted at `/backups`). `./database/init` is mounted read-only at
+`/docker-entrypoint-initdb.d`, so those SQL files run in filename order the
+first time the container starts against an empty data directory, and never
+again.
 
-# WAL
-wal_level = replica
-max_wal_senders = 3
-wal_keep_size = 1GB
-
-# Logging
-log_destination = 'stderr'
-logging_collector = on
-log_directory = 'log'
-log_filename = 'postgresql-%Y-%m-%d.log'
-log_statement = 'ddl'
-log_min_duration_statement = 1000     # Log queries > 1s
-
-# Checkpoints
-checkpoint_completion_target = 0.9
-checkpoint_timeout = 10min
-
-# Autovacuum
-autovacuum = on
-autovacuum_naptime = 1min
-autovacuum_vacuum_threshold = 50
-autovacuum_analyze_threshold = 50
-```
-
-#### Connection Pooling (PgBouncer)
-
-```ini
-[databases]
-gigachad_grc = host=postgres port=5432 dbname=gigachad_grc
-
-[pgbouncer]
-listen_addr = 0.0.0.0
-listen_port = 6432
-auth_type = scram-sha-256
-auth_file = /etc/pgbouncer/userlist.txt
-pool_mode = transaction
-max_client_conn = 1000
-default_pool_size = 25
-min_pool_size = 5
-reserve_pool_size = 5
-reserve_pool_timeout = 3
-```
+The Prisma schema is applied separately with `prisma db push` — see
+[Deployment Runbook §7.2](./DEPLOYMENT-RUNBOOK.md#72-apply-the-schema).
+There is no baseline migration, so `prisma migrate deploy` has nothing to
+apply.
 
 ---
 
@@ -447,106 +403,43 @@ permission groups they belong to plus per-user overrides. See
 
 ## MinIO Configuration
 
-### Bucket Setup
+Evidence, policy documents and integration artefacts all go into **one
+bucket**, named by `MINIO_BUCKET` (or `S3_BUCKET`) and defaulting to
+`grc-storage`. Objects are separated by key prefix, not by bucket.
+
+**Nothing in this repository creates that bucket.** Create it once, after
+MinIO first starts:
 
 ```bash
-# Create buckets
-mc alias set grc http://localhost:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD}
-mc mb grc/evidence
-mc mb grc/policies
-mc mb grc/integrations
-
-# Set bucket policies
-mc policy set download grc/evidence
-mc policy set private grc/policies
+# Substitute the project's network name; `docker network ls | grep grc-dmz`.
+docker run --rm --network gigachad-grc_grc-dmz \
+  -e MC_HOST_local="http://$MINIO_ROOT_USER:$MINIO_ROOT_PASSWORD@minio:9000" \
+  minio/mc mb --ignore-existing local/grc-storage
 ```
 
-### Lifecycle Rules
+Leave the bucket private. The application serves evidence through presigned
+URLs, so no anonymous read policy is needed.
 
-```json
-{
-  "Rules": [
-    {
-      "ID": "evidence-retention",
-      "Status": "Enabled",
-      "Filter": {
-        "Prefix": "evidence/"
-      },
-      "Expiration": {
-        "Days": 365
-      }
-    }
-  ]
-}
-```
+MinIO's own console is off by default (`MINIO_BROWSER=off`), port 9001 is not
+published and no Traefik router points at it. `docker-compose.prod.yml`
+carries the SSH tunnel recipe for reaching it deliberately.
 
 ---
 
 ## Security Configuration
 
-### TLS/SSL
+| Concern | Where it is handled |
+|---|---|
+| TLS | Traefik, with Let's Encrypt. See [SSL Configuration](./SSL_CONFIGURATION.md) for a custom certificate |
+| Secrets | `.env.prod`, `chmod 600`, never committed. Docker secrets are not wired up: the services read plain environment variables |
+| Network isolation | `grc-network` is `internal: true`. PostgreSQL and the six API services publish no ports and are unreachable from the host network |
+| Container hardening | `no-new-privileges`, all capabilities dropped, read-only root filesystems on PostgreSQL and the six API services |
+| Credentials at rest | Integration and AI credentials are encrypted with `ENCRYPTION_KEY` before they are stored |
+| Request limits | Traefik rate-limit middleware on the gateway router, plus `RATE_LIMIT_*` inside the services |
 
-Generate self-signed certificates (development):
-
-```bash
-openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-  -keyout server.key \
-  -out server.crt \
-  -subj "/CN=localhost"
-```
-
-### Secrets Management
-
-Using Docker secrets:
-
-```yaml
-secrets:
-  db_password:
-    file: ./secrets/db_password.txt
-  jwt_secret:
-    file: ./secrets/jwt_secret.txt
-
-services:
-  controls:
-    secrets:
-      - db_password
-      - jwt_secret
-    environment:
-      DATABASE_URL_FILE: /run/secrets/db_password
-```
-
-### Network Policies
-
-```yaml
-# Kubernetes NetworkPolicy
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: grc-services
-spec:
-  podSelector:
-    matchLabels:
-      app: grc
-  policyTypes:
-    - Ingress
-    - Egress
-  ingress:
-    - from:
-        - podSelector:
-            matchLabels:
-              app: traefik
-      ports:
-        - protocol: TCP
-          port: 3001
-  egress:
-    - to:
-        - podSelector:
-            matchLabels:
-              app: postgres
-      ports:
-        - protocol: TCP
-          port: 5432
-```
+There are no Kubernetes manifests in this repository, so there are no
+NetworkPolicies to write. [Security Model](./SECURITY_MODEL.md) describes the
+authentication and authorization design.
 
 ---
 
@@ -603,33 +496,30 @@ dashboard JSON files here either.
 
 ## Configuration Validation
 
-### Validate Environment
+`npm run validate:production` (`scripts/validate-production.sh`) is the
+production readiness check. It reads `.env.prod` and verifies the required
+variables, secret strength, that `AUTH_MODE=demo` is not enabled in
+production, and the host prerequisites a deploy needs.
 
 ```bash
-# Environment values: required variables, secret strength, and that
-# AUTH_MODE=demo is not enabled in production. Reads .env.prod.
 npm run validate:production
-
-# Deployment prerequisites: tooling, Docker daemon, disk space, host ports
-# 80/443, and the presence of the config files a deploy needs.
-./deploy/preflight-check.sh
-
-# Validate specific service
-docker compose config --services
-docker compose config | grep -A5 controls
 ```
 
-### Test Connectivity
+Check that compose resolves the file you think it does:
 
 ```bash
-# Database
-docker exec grc-controls nc -zv postgres 5432
-
-# Service health (every service exposes GET /health)
-docker exec grc-controls wget -qO- http://localhost:3001/health
-
-# Aggregate health, controls service only
-docker exec grc-controls wget -qO- http://localhost:3001/api/system/health
+docker compose -f docker-compose.prod.yml --env-file .env.prod config --services
+docker compose -f docker-compose.prod.yml --env-file .env.prod config | grep -A5 'controls:'
 ```
 
+Once the stack is running:
+
+```bash
+# Per-service health, from inside the network.
+docker compose -f docker-compose.prod.yml --env-file .env.prod \
+  exec -T gateway wget -qO- http://controls:3001/health
+
+# Aggregate health through the public gateway (controls service, unauthenticated).
+curl -fsS https://grc.example.com/api/system/health
+```
 

@@ -92,7 +92,7 @@ docker compose ps
 and the frontend in containers. That first build takes 25–60 minutes, which is
 why `./scripts/start-demo.sh` compiles them on the host instead (~15 seconds).
 
-`./deploy/preflight-check.sh` exists for pre-deployment verification, not for
+`npm run validate:production` exists for pre-deployment verification, not for
 local setup.
 
 ### 3. Initialize Database
@@ -181,7 +181,6 @@ gigachad-grc/
 │
 ├── deploy/                    # Deployment files
 │   ├── env.example           # PRODUCTION template (sets NODE_ENV=production)
-│   ├── preflight-check.sh    # Pre-deployment checks
 │   ├── db-migrate.sh         # Database migration script
 │   ├── backup.sh             # Backup script
 │   ├── restore.sh            # Restore script
