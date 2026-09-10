@@ -15,7 +15,7 @@ import { Button } from '@/components/Button';
 import { Modal } from '@/components/Modal';
 import { EmptyState } from '@/components/EmptyState';
 import { SkeletonTable } from '@/components/Skeleton';
-import { auditFindingsApi, auditsApi, usersApi } from '@/lib/api';
+import { auditFindingsApi, auditsApi, usersApi, USER_LIST_MAX_LIMIT } from '@/lib/api';
 import { useToast } from '@/hooks/useToast';
 import { useSelection, BulkActionsBar, SelectCheckbox } from '@/components/BulkActions';
 
@@ -135,10 +135,14 @@ export default function AuditFindings() {
     queryFn: () => auditsApi.list().then(r => r.data),
   });
 
-  const { data: users } = useQuery({
+  const { data: usersData } = useQuery({
     queryKey: ['users'],
-    queryFn: () => usersApi.list().then(r => r.data?.data || []),
+    queryFn: () => usersApi.list({ limit: USER_LIST_MAX_LIMIT }).then(r => r.data),
   });
+  const users = usersData?.users ?? [];
+  // A roster bigger than one maximum-size page cannot all fit in the owner
+  // dropdown; the form says so rather than silently omitting people.
+  const unlistedUserCount = Math.max(0, (usersData?.total ?? users.length) - users.length);
 
   const findingsData = (findings || []) as unknown as Finding[];
   const statsData = stats as FindingStats | undefined;
@@ -481,6 +485,7 @@ export default function AuditFindings() {
           finding={editingFinding}
           audits={audits as { id: string; name: string }[]}
           users={users as { id: string; firstName: string; lastName: string; email: string }[]}
+          unlistedUserCount={unlistedUserCount}
           onSubmit={(data) => {
             if (editingFinding) {
               updateMutation.mutate({ id: editingFinding.id, data });
@@ -505,12 +510,14 @@ interface FindingFormProps {
   finding?: Finding | null;
   audits?: { id: string; name: string }[];
   users?: { id: string; firstName: string; lastName: string; email: string }[];
+  /** How many org users could not be offered in the owner picker. */
+  unlistedUserCount?: number;
   onSubmit: (data: Record<string, unknown>) => void;
   onDelete?: () => void;
   isLoading: boolean;
 }
 
-function FindingForm({ finding, audits, users, onSubmit, onDelete, isLoading }: FindingFormProps) {
+function FindingForm({ finding, audits, users, unlistedUserCount = 0, onSubmit, onDelete, isLoading }: FindingFormProps) {
   const [formData, setFormData] = useState({
     auditId: finding?.auditId || '',
     title: finding?.title || '',
@@ -652,6 +659,12 @@ function FindingForm({ finding, audits, users, onSubmit, onDelete, isLoading }: 
               </option>
             ))}
           </select>
+          {unlistedUserCount > 0 && (
+            <p className="mt-1 text-xs text-surface-400">
+              Showing the first {users?.length} users; {unlistedUserCount} more are not
+              listed.
+            </p>
+          )}
         </div>
 
         <div className="col-span-2">

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { tasksApi, usersApi } from '@/lib/api';
+import { tasksApi, usersApi, USER_LIST_MAX_LIMIT } from '@/lib/api';
 import toast from 'react-hot-toast';
 import {
   ClipboardDocumentListIcon,
@@ -50,10 +50,16 @@ export default function TasksPanel({ entityType, entityId }: TasksPanelProps) {
     enabled: !!entityId,
   });
 
-  const { data: users = [] } = useQuery({
+  const { data: usersData } = useQuery({
     queryKey: ['users'],
-    queryFn: () => usersApi.list().then((res) => res.data?.data || []),
+    queryFn: () =>
+      usersApi.list({ limit: USER_LIST_MAX_LIMIT }).then((res) => res.data),
   });
+  const users = usersData?.users ?? [];
+  // The assignee pickers below can only offer the rows we actually received. If
+  // the org has more people than one maximum-size page, say so instead of
+  // quietly leaving colleagues out of the dropdowns.
+  const unlistedUserCount = Math.max(0, (usersData?.total ?? users.length) - users.length);
 
   const createMutation = useMutation({
     mutationFn: (data: any) => tasksApi.create({ entityType, entityId, ...data }),
@@ -124,6 +130,13 @@ export default function TasksPanel({ entityType, entityId }: TasksPanelProps) {
           </button>
         )}
       </div>
+
+      {unlistedUserCount > 0 && (
+        <p className="text-xs text-surface-400">
+          Assignee list shows the first {users.length} of {usersData?.total} users;{' '}
+          {unlistedUserCount} are not selectable here.
+        </p>
+      )}
 
       {/* Create Task Form */}
       {isCreating && (

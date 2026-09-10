@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { frameworksApi, mappingsApi, usersApi } from '@/lib/api';
+import { frameworksApi, mappingsApi, usersApi, USER_LIST_MAX_LIMIT } from '@/lib/api';
 import toast from 'react-hot-toast';
 import CommentsPanel from '@/components/CommentsPanel';
 import TasksPanel from '@/components/TasksPanel';
@@ -727,9 +727,12 @@ function RequirementDetailPanel({
 
   const { data: usersData } = useQuery({
     queryKey: ['users'],
-    queryFn: () => usersApi.list().then((res) => res.data),
+    queryFn: () => usersApi.list({ limit: USER_LIST_MAX_LIMIT }).then((res) => res.data),
   });
-  const users = usersData?.data || [];
+  const users = usersData?.users || [];
+  // The owner dropdown can only offer the rows we received; if the org has more
+  // people than one maximum-size page, say so instead of hiding them.
+  const unlistedUserCount = Math.max(0, (usersData?.total ?? users.length) - users.length);
 
   const { data: reqDetail } = useQuery({
     queryKey: ['requirement-detail', frameworkId, requirement.id],
@@ -852,6 +855,12 @@ function RequirementDetailPanel({
                       </option>
                     ))}
                   </select>
+                  {unlistedUserCount > 0 && (
+                    <p className="mt-1 text-xs text-surface-400">
+                      Showing the first {users.length} users; {unlistedUserCount} more are
+                      not listed.
+                    </p>
+                  )}
                 </div>
 
                 {/* Priority */}

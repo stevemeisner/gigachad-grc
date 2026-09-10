@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { controlsApi, implementationsApi, usersApi, evidenceApi, policiesApi } from '@/lib/api';
+import { controlsApi, implementationsApi, usersApi, evidenceApi, policiesApi, USER_LIST_MAX_LIMIT } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import toast from 'react-hot-toast';
 import CommentsPanel from '@/components/CommentsPanel';
@@ -75,9 +75,12 @@ export default function ControlDetail() {
 
   const { data: usersData } = useQuery({
     queryKey: ['users'],
-    queryFn: () => usersApi.list().then((res) => res.data),
+    queryFn: () => usersApi.list({ limit: USER_LIST_MAX_LIMIT }).then((res) => res.data),
   });
-  const users = usersData?.data || [];
+  const users = usersData?.users || [];
+  // The owner dropdown can only offer the rows we received; if the org has more
+  // people than one maximum-size page, say so instead of hiding them.
+  const unlistedUserCount = Math.max(0, (usersData?.total ?? users.length) - users.length);
 
   const updateStatusMutation = useMutation({
     mutationFn: (status: string) => {
@@ -327,6 +330,12 @@ export default function ControlDetail() {
                           </option>
                         ))}
                       </select>
+                      {unlistedUserCount > 0 && (
+                        <p className="mt-1 text-xs text-surface-400">
+                          Showing the first {users.length} users; {unlistedUserCount} more
+                          are not listed.
+                        </p>
+                      )}
                     </div>
                     <div>
                       <label className="label mb-1">Testing Frequency</label>

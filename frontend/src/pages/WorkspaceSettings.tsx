@@ -8,7 +8,7 @@ import {
   ArrowLeftIcon,
 } from '@heroicons/react/24/outline';
 import { useWorkspace, Workspace, WorkspaceMember } from '@/contexts/WorkspaceContext';
-import api from '@/lib/api';
+import api, { usersApi, USER_LIST_MAX_LIMIT } from '@/lib/api';
 import toast from 'react-hot-toast';
 
 const WORKSPACE_ROLES = [
@@ -35,15 +35,22 @@ function AddMemberModal({
   const [selectedRole, setSelectedRole] = useState('viewer');
   const [isAdding, setIsAdding] = useState(false);
 
-  // Fetch organization users
-  const { data: orgUsers = [] } = useQuery({
+  // Fetch organization users. Goes through `usersApi.list` so this picker shares
+  // the one auth/interceptor path, and asks for the largest page the server will
+  // serve rather than accepting the default 50.
+  const { data: usersData } = useQuery({
     queryKey: ['org-users'],
-    queryFn: () => api.get('/api/users').then(r => r.data?.data || r.data || []),
+    queryFn: () => usersApi.list({ limit: USER_LIST_MAX_LIMIT }).then(r => r.data),
     enabled: isOpen,
   });
+  const orgUsers = usersData?.users ?? [];
+  // Counted against the rows we received, never against `availableUsers` -- the
+  // filter below legitimately removes existing members, and treating that as
+  // truncation would raise a false alarm.
+  const unlistedUserCount = Math.max(0, (usersData?.total ?? orgUsers.length) - orgUsers.length);
 
   const availableUsers = orgUsers.filter(
-    (user: any) => !existingMemberIds.includes(user.id)
+    (user) => !existingMemberIds.includes(user.id)
   );
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -87,7 +94,7 @@ function AddMemberModal({
                 required
               >
                 <option value="">Select a user...</option>
-                {availableUsers.map((user: any) => (
+                {availableUsers.map((user) => (
                   <option key={user.id} value={user.id}>
                     {user.displayName || user.email} ({user.email})
                   </option>
@@ -96,6 +103,12 @@ function AddMemberModal({
               {availableUsers.length === 0 && (
                 <p className="text-sm text-muted-foreground mt-1">
                   All organization members are already in this workspace.
+                </p>
+              )}
+              {unlistedUserCount > 0 && (
+                <p className="text-sm text-muted-foreground mt-1">
+                  Showing the first {orgUsers.length} of {usersData?.total} organization
+                  users; {unlistedUserCount} are not listed.
                 </p>
               )}
             </div>

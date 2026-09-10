@@ -13,6 +13,7 @@ import type {
   CreateUserData,
   UpdateUserData,
   UserListParams,
+  UserListResponse,
   // Controls
   Control,
   CreateControlData,
@@ -526,14 +527,29 @@ export const frameworksApi = {
     api.post('/api/frameworks/seed'),
 };
 
+/**
+ * The largest page `GET /api/users` will serve. Mirrors `MAX_PAGINATION_LIMIT`
+ * in `services/controls/src/common/pagination.pipe.ts`, which is the ceiling the
+ * server enforces: ask for more and the pipe *silently clamps* to this number
+ * instead of erroring, so a caller that optimistically asks for 1000 still gets
+ * 100 rows and no hint that it was cut off. Anything that wants the whole roster
+ * must request this and then compare `total` against the rows it received.
+ */
+export const USER_LIST_MAX_LIMIT = 100;
+
 export const usersApi = {
-  list: (params?: UserListParams): Promise<AxiosResponse<{ data: User[]; total: number }>> =>
+  /**
+   * `page` is 1-based. Omitting `limit` accepts the endpoint's default of 50
+   * (`PaginationLimitPipe({ default: 50 })` in `users.controller.ts`), which
+   * quietly truncates any roster larger than that -- so pass one deliberately.
+   */
+  list: (params?: UserListParams): Promise<AxiosResponse<UserListResponse>> =>
     api.get('/api/users', { params }),
   get: (id: string): Promise<AxiosResponse<User>> => 
     api.get(`/api/users/${id}`),
   getMe: (): Promise<AxiosResponse<User>> => 
     api.get('/api/users/me'),
-  getStats: (): Promise<AxiosResponse<{ total: number; active: number; inactive: number; byRole: Record<string, number> }>> => 
+  getStats: (): Promise<AxiosResponse<{ total: number; active: number; inactive: number; byRole: Array<{ role: string; count: number }> }>> =>
     api.get('/api/users/stats'),
   create: (data: CreateUserData): Promise<AxiosResponse<User>> => 
     api.post('/api/users', data),

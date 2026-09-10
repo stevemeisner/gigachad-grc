@@ -83,7 +83,7 @@ vi.mock('@/lib/api', () => ({
   usersApi: {
     list: vi.fn().mockResolvedValue({
       data: {
-        data: [
+        users: [
           { id: 'user-1', displayName: 'John Doe', email: 'john@example.com' },
           { id: 'user-2', displayName: 'Jane Smith', email: 'jane@example.com' },
         ],

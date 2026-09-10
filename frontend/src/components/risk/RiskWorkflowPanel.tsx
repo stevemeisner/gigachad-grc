@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { risksApi } from '../../lib/api';
+import { risksApi, usersApi, USER_LIST_MAX_LIMIT } from '../../lib/api';
 import {
   CheckCircle,
   XCircle,
@@ -1682,18 +1682,20 @@ function AssignRoleModal({
   const [userId, setUserId] = useState(currentUserId || '');
   const [search, setSearch] = useState('');
 
-  // Fetch users for selection
+  // Fetch users for selection. Goes through `usersApi.list` like every other
+  // caller, so this picker inherits the shared auth/interceptor handling instead
+  // of the bare `fetch` it used to do, and asks for the largest page the server
+  // will serve.
   const { data: usersData } = useQuery({
     queryKey: ['users', 'list'],
-    queryFn: async () => {
-      const response = await fetch('/api/users?limit=100');
-      if (!response.ok) return { users: [] };
-      return response.json();
-    },
+    queryFn: () => usersApi.list({ limit: USER_LIST_MAX_LIMIT }).then(res => res.data),
   });
 
-  const users = usersData?.users || [];
-  const filteredUsers = users.filter((user: any) =>
+  const users = usersData?.users ?? [];
+  // Counted against the rows we received, not against `filteredUsers` -- the
+  // search box below narrows the list on purpose.
+  const unlistedUserCount = Math.max(0, (usersData?.total ?? users.length) - users.length);
+  const filteredUsers = users.filter((user) =>
     user.email?.toLowerCase().includes(search.toLowerCase()) ||
     user.firstName?.toLowerCase().includes(search.toLowerCase()) ||
     user.lastName?.toLowerCase().includes(search.toLowerCase())
@@ -1770,7 +1772,7 @@ function AssignRoleModal({
               <p className="text-center text-surface-500 py-4">No users found</p>
             )}
 
-            {filteredUsers.map((user: any) => (
+            {filteredUsers.map((user) => (
               <label
                 key={user.id}
                 className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer ${
@@ -1798,6 +1800,14 @@ function AssignRoleModal({
                 </div>
               </label>
             ))}
+
+            {unlistedUserCount > 0 && (
+              <p className="text-sm text-surface-400 py-2">
+                Showing the first {users.length} of {usersData?.total} users;{' '}
+                {unlistedUserCount} are not listed. Search to narrow, or enter an ID
+                below.
+              </p>
+            )}
 
             {/* Manual ID input if no users found */}
             {users.length === 0 && (
