@@ -155,10 +155,26 @@ services, PostgreSQL, MinIO and the backup scheduler.
 | RAM | 4 GB | 8 GB |
 | Disk | 40 GB SSD | 80 GB SSD |
 
-4 GB is enough to *run* the stack; the first image build is the memory-hungry
-part, and on 4 GB it is noticeably slower. Disk is dominated by container
-images plus evidence uploads and backups — 40 GB is a comfortable start for a
-few hundred controls with attachments.
+4 GB is enough to *run* the stack — measured idle usage is about 370 MB
+(six Node services 148 MB, PostgreSQL 124 MB, MinIO 91 MB). What needs the
+headroom is the **first image build**: a Vite production build of this
+frontend peaks around 1.5–2.5 GB. If you build images in CI and pull them
+instead of running `--build` on the server, 2 GB is workable.
+
+Concrete options (prices read 2026-09-10):
+
+| Option | Machine | Monthly | Trade-off |
+|---|---|---|---|
+| Minimum | DigitalOcean `s-1vcpu-2gb` | $12 | Must build images in CI; tight |
+| **Recommended** | DigitalOcean `s-2vcpu-4gb` | **$24** | Builds on the host, slowly |
+| Cheapest equivalent | Hetzner `CX33` (4 vCPU / 8 GB) | ~$10 | EU only; no SOC 2 report |
+
+Add roughly 20% for the provider's automated backups. Note Hetzner's CX line
+is far cheaper than the CPX line for the same specification.
+
+Disk is dominated by evidence uploads and **backups**, not images. With the
+default retention, local archives will outgrow a small disk — send them
+off-box (see section 9).
 
 Ubuntu 22.04 or 24.04 LTS is the least surprising choice.
 

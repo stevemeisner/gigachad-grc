@@ -14,4 +14,4 @@
 0 4 * * 0 /app/verify-backup.sh >> /var/log/cron/verify.log 2>&1
 
 # Monthly cleanup of old backups (1st of month at 3:00 AM)
-0 3 1 * * find /backups/gigachad-grc -name "backup-*.tar.gz" -mtime +${BACKUP_RETENTION_DAYS:-90} -delete >> /var/log/cron/cleanup.log 2>&1
+0 3 1 * * find /backups/gigachad-grc -name "backup-*.tar.gz" -mtime +${BACKUP_RETENTION_DAYS:-30} -delete >> /var/log/cron/cleanup.log 2>&1

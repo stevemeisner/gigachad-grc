@@ -152,8 +152,13 @@ export default defineConfig(({ mode }) => {
     },
     // Increase chunk size warning limit
     chunkSizeWarningLimit: 500, // Warn at 500KB
-    // Enable source maps for production debugging (disable for smaller builds)
-    sourcemap: process.env.NODE_ENV !== 'production',
+    // Source maps in dev only. This keys off Vite's own `mode`, not
+    // process.env.NODE_ENV: the config file is evaluated by Node before Vite
+    // sets NODE_ENV, and frontend/Dockerfile never exports it, so the old
+    // check was true during `docker build` and shipped source maps -- and the
+    // readable source they contain -- in every production image. Generating
+    // them is also the single largest memory consumer in a Rollup build.
+    sourcemap: mode !== 'production',
     // Optimize CSS
     cssCodeSplit: true,
     // Minification options
