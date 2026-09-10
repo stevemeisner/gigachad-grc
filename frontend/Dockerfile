@@ -26,6 +26,13 @@ ENV VITE_FIREBASE_API_KEY=$VITE_FIREBASE_API_KEY
 ENV VITE_FIREBASE_AUTH_DOMAIN=$VITE_FIREBASE_AUTH_DOMAIN
 ENV VITE_FIREBASE_PROJECT_ID=$VITE_FIREBASE_PROJECT_ID
 
+# Pre-fills the domain in Google's account chooser. Cosmetic only - it filters
+# nothing, and ALLOWED_EMAIL_DOMAINS on the API is what actually rejects an
+# address. Inlined at build time like the values above, so it is a build arg
+# rather than runtime env.
+ARG VITE_ALLOWED_EMAIL_DOMAIN
+ENV VITE_ALLOWED_EMAIL_DOMAIN=$VITE_ALLOWED_EMAIL_DOMAIN
+
 RUN npm run build
 
 # Production stage

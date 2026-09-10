@@ -227,11 +227,29 @@ services:
       ALLOWED_EMAIL_DOMAINS: ${ALLOWED_EMAIL_DOMAINS}
       AUTH_AUTO_PROVISION: ${AUTH_AUTO_PROVISION:-false}
       AUTH_DEFAULT_ORG_ID: ${AUTH_DEFAULT_ORG_ID}
-      JWT_SECRET: ${JWT_SECRET}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
       RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-100}
       RATE_LIMIT_WINDOW_MS: ${RATE_LIMIT_WINDOW_MS:-60000}
+      # shared/src/utils/crypto.ts THROWS when ENCRYPTION_KEY is absent, so
+      # anything touching a stored integration credential fails without it.
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      # Only this service sends mail (src/email/email.service.ts). Without
+      # these the service silently falls back to logging emails instead of
+      # sending them, whatever .env.prod says.
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-console}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+      EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SENDGRID_API_KEY: ${SENDGRID_API_KEY:-}
+      AWS_REGION: ${AWS_REGION:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -259,6 +277,13 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    # Exactly one replica, deliberately. This is where a `replicas:` key would
+    # go, and setting it above 1 breaks two things in the controls service:
+    # collectors.scheduler.ts and scheduled-notifications.service.ts both tick
+    # from setInterval with no cross-process coordination, so every replica
+    # fires its own copy of each scheduled run; and ThrottlerModule keeps its
+    # counters in memory, so the effective rate limit multiplies by the replica
+    # count. Both need a shared lock before a second replica is safe.
     deploy:
       resources:
         limits:
@@ -297,11 +322,12 @@ services:
       ALLOWED_EMAIL_DOMAINS: ${ALLOWED_EMAIL_DOMAINS}
       AUTH_AUTO_PROVISION: ${AUTH_AUTO_PROVISION:-false}
       AUTH_DEFAULT_ORG_ID: ${AUTH_DEFAULT_ORG_ID}
-      JWT_SECRET: ${JWT_SECRET}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
       RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-100}
       RATE_LIMIT_WINDOW_MS: ${RATE_LIMIT_WINDOW_MS:-60000}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      CORS_ORIGINS: ${CORS_ORIGINS}
     depends_on:
       postgres:
         condition: service_healthy
@@ -365,11 +391,12 @@ services:
       ALLOWED_EMAIL_DOMAINS: ${ALLOWED_EMAIL_DOMAINS}
       AUTH_AUTO_PROVISION: ${AUTH_AUTO_PROVISION:-false}
       AUTH_DEFAULT_ORG_ID: ${AUTH_DEFAULT_ORG_ID}
-      JWT_SECRET: ${JWT_SECRET}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
       RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-100}
       RATE_LIMIT_WINDOW_MS: ${RATE_LIMIT_WINDOW_MS:-60000}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      CORS_ORIGINS: ${CORS_ORIGINS}
     depends_on:
       postgres:
         condition: service_healthy
@@ -433,11 +460,12 @@ services:
       ALLOWED_EMAIL_DOMAINS: ${ALLOWED_EMAIL_DOMAINS}
       AUTH_AUTO_PROVISION: ${AUTH_AUTO_PROVISION:-false}
       AUTH_DEFAULT_ORG_ID: ${AUTH_DEFAULT_ORG_ID}
-      JWT_SECRET: ${JWT_SECRET}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
       RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-100}
       RATE_LIMIT_WINDOW_MS: ${RATE_LIMIT_WINDOW_MS:-60000}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      CORS_ORIGINS: ${CORS_ORIGINS}
     depends_on:
       postgres:
         condition: service_healthy
@@ -501,11 +529,12 @@ services:
       ALLOWED_EMAIL_DOMAINS: ${ALLOWED_EMAIL_DOMAINS}
       AUTH_AUTO_PROVISION: ${AUTH_AUTO_PROVISION:-false}
       AUTH_DEFAULT_ORG_ID: ${AUTH_DEFAULT_ORG_ID}
-      JWT_SECRET: ${JWT_SECRET}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
       RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-100}
       RATE_LIMIT_WINDOW_MS: ${RATE_LIMIT_WINDOW_MS:-60000}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      CORS_ORIGINS: ${CORS_ORIGINS}
     depends_on:
       postgres:
         condition: service_healthy
@@ -569,11 +598,12 @@ services:
       ALLOWED_EMAIL_DOMAINS: ${ALLOWED_EMAIL_DOMAINS}
       AUTH_AUTO_PROVISION: ${AUTH_AUTO_PROVISION:-false}
       AUTH_DEFAULT_ORG_ID: ${AUTH_DEFAULT_ORG_ID}
-      JWT_SECRET: ${JWT_SECRET}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
       RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-100}
       RATE_LIMIT_WINDOW_MS: ${RATE_LIMIT_WINDOW_MS:-60000}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      CORS_ORIGINS: ${CORS_ORIGINS}
     depends_on:
       postgres:
         condition: service_healthy
@@ -624,6 +654,9 @@ services:
         VITE_FIREBASE_API_KEY: ${VITE_FIREBASE_API_KEY}
         VITE_FIREBASE_AUTH_DOMAIN: ${VITE_FIREBASE_AUTH_DOMAIN}
         VITE_FIREBASE_PROJECT_ID: ${VITE_FIREBASE_PROJECT_ID}
+        # Cosmetic account-chooser hint only; ALLOWED_EMAIL_DOMAINS on the API
+        # is the control that actually restricts who can sign in.
+        VITE_ALLOWED_EMAIL_DOMAIN: ${VITE_ALLOWED_EMAIL_DOMAIN}
     image: grc-frontend:${IMAGE_TAG:-latest}
     container_name: grc-frontend
     environment:

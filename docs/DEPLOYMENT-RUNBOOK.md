@@ -245,15 +245,14 @@ cd gigachad-grc
 ```bash
 cp deploy/env.example .env.prod
 chmod 600 .env.prod
-ln -s .env.prod .env      # so tools that look for .env see the same values
 ```
 
-> **Why both names?** `docker compose` reads `.env` by default, while
-> `deploy/backup.sh`, `deploy/restore.sh` and `scripts/validate-production.sh`
-> read `.env.prod`, and `docker-compose.prod.yml` mounts `./.env.prod` into the
-> backup scheduler. One file plus a symlink keeps them from drifting. Every
-> compose command below also passes `--env-file .env.prod` explicitly, so it
-> works either way.
+`.env.prod` is the only environment filename this deployment uses. Every
+compose command below passes `--env-file .env.prod` explicitly,
+`docker-compose.prod.yml` mounts it into the backup scheduler, and
+`deploy/backup.sh`, `deploy/restore.sh`, `deploy/verify-backup.sh` and
+`scripts/validate-production.sh` all read it. Nothing looks for `.env`, so
+there is no second file and no symlink to keep in step.
 
 Now edit `.env.prod`. These are the variables you must set:
 
@@ -273,15 +272,20 @@ Now edit `.env.prod`. These are the variables you must set:
 | `VITE_FIREBASE_API_KEY` | Browser Firebase config (build-time) | Step 2, Web API key |
 | `VITE_FIREBASE_AUTH_DOMAIN` | Browser Firebase config (build-time) | Step 2, auth domain |
 | `VITE_FIREBASE_PROJECT_ID` | Browser Firebase config (build-time) | Same value as `FIREBASE_PROJECT_ID` |
+| `VITE_ALLOWED_EMAIL_DOMAIN` | Pre-fills the domain in Google's account chooser (build-time). Cosmetic: it restricts nothing, `ALLOWED_EMAIL_DOMAINS` does | Your Workspace domain |
 | `MINIO_ROOT_USER` | Object storage user | Change from `minioadmin` |
 | `MINIO_ROOT_PASSWORD` | Object storage password | `openssl rand -base64 32` |
 | `MINIO_BROWSER` | MinIO's own web console | Keep `off` in production |
 | `ENCRYPTION_KEY` | Encrypts stored integration credentials. **Losing it makes those unreadable** | `openssl rand -hex 32` (must be ≥32 chars) |
-| `JWT_SECRET` | Reserved for internal service-to-service tokens. Nothing signs with it today, but `npm run validate:production` warns on a missing or short value and the in-app production-readiness check marks it **critical** in production | `openssl rand -base64 64` |
 | `CORS_ORIGINS` | Browser origins allowed to call the API | `https://grc.example.com` — with the scheme, no trailing slash |
 | `LOG_LEVEL` | `info` is right for production | Already set |
 | `BACKUP_RETENTION_DAYS` | How long backups are kept | `30` is the shipped default |
-| `EMAIL_PROVIDER` | `console`, `smtp`, `sendgrid` or `ses` | Leave `console` until you have a mail provider; notifications are then logged rather than sent |
+| `EMAIL_PROVIDER` | `console`, `smtp`, `sendgrid` or `ses` | Choose a real one before deploying. `npm run validate:production` **fails** on `console` when `NODE_ENV=production`, because notifications are then written to the container log and never sent |
+| `SMTP_*` / `SENDGRID_API_KEY` / `AWS_*` | Whichever set the provider above needs | See the comments in `deploy/env.example` |
+
+Every `CHANGE_ME_*` placeholder must be replaced. `npm run validate:production`
+fails on any that survive: they are longer than the minimum secret length, so
+a copied-but-unedited file would otherwise report its secrets as valid.
 
 > ⚠️ **Never set `AUTH_MODE=demo` here.** It is the single authentication
 > bypass in the system and serves every request as the seeded demo
@@ -290,7 +294,7 @@ Now edit `.env.prod`. These are the variables you must set:
 > refuse to boot rather than run unauthenticated — but do not rely on that as
 > a safety net.
 
-The three `VITE_*` values are **build-time** inputs: `frontend/Dockerfile`
+The four `VITE_*` values are **build-time** inputs: `frontend/Dockerfile`
 receives them as build arguments (passed by `docker-compose.prod.yml`) and
 Vite compiles them into the JavaScript bundle. Changing one later requires
 rebuilding the `frontend` image, not just restarting it.
@@ -303,15 +307,20 @@ npm run validate:production
 
 That script reads `.env.prod` and verifies, among other things, that
 `FIREBASE_PROJECT_ID` and `ALLOWED_EMAIL_DOMAINS` are set, that
-`AUTH_AUTO_PROVISION` has an organization to point at, that secrets are long
-enough and not left at a known weak default, and that `AUTH_MODE=demo` is not
-enabled in production. (It needs Node.js locally; run it on your laptop
-against the same file if the server has none.)
+`VITE_FIREBASE_PROJECT_ID` is equal to `FIREBASE_PROJECT_ID` (a mismatch
+otherwise shows up only as a rejected token audience, after a 25–60 minute
+image build), that `AUTH_AUTO_PROVISION` has an organization to point at, that
+secrets are long enough and not left at a known weak default, that
+`AUTH_MODE=demo` is not enabled in production, and that whichever
+`EMAIL_PROVIDER` you chose has the settings it actually needs. It then checks
+the machine: Docker installed and running, enough memory and disk, and ports
+80 and 443 free. (It is a shell script run through npm; run it on your laptop
+against the same file if the server has no Node.js.)
 
-> Run both checks — they cover different ground. `npm run validate:production`
-> inspects the values in your `.env` (secrets present, no demo mode in
-> production, domains set). `./deploy/preflight-check.sh` inspects the machine
-> (Docker present and running, disk space, required ports free).
+> **This is the only readiness check.** `deploy/preflight-check.sh` used to sit
+> beside it, duplicating most of these checks while disagreeing about the
+> details, so it was deleted and the machine-level checks it alone performed
+> were moved into `scripts/validate-production.sh`.
 
 ---
 

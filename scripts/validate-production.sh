@@ -55,9 +55,13 @@ echo -e "${CYAN}╚════════════════════�
 echo ""
 
 # Helper functions
+#
+# The counters are incremented with an assignment, not with ((VAR++)): under
+# `set -e` a post-increment whose OLD value is 0 returns exit status 1, which
+# killed this script at its very first check.
 pass() {
     echo -e "${GREEN}✓${NC} $1"
-    ((PASSED++))
+    PASSED=$((PASSED + 1))
 }
 
 warn() {
@@ -65,7 +69,7 @@ warn() {
     if [ -n "${2:-}" ]; then
         echo -e "  ${YELLOW}Recommendation:${NC} $2"
     fi
-    ((WARNINGS++))
+    WARNINGS=$((WARNINGS + 1))
 }
 
 fail() {
@@ -73,7 +77,7 @@ fail() {
     if [ -n "${2:-}" ]; then
         echo -e "  ${RED}Action Required:${NC} $2"
     fi
-    ((ERRORS++))
+    ERRORS=$((ERRORS + 1))
 }
 
 section() {
@@ -81,20 +85,26 @@ section() {
     echo -e "${BLUE}━━━ $1 ━━━${NC}"
 }
 
-# Load environment file if it exists
+# Load the production environment file.
+#
+# .env.prod is the ONLY production env filename: deploy/env.example is copied
+# to it, docker-compose.prod.yml is run with --env-file .env.prod and mounts it
+# into the backup scheduler, and deploy/backup.sh, deploy/restore.sh and
+# deploy/verify-backup.sh all read it. There is deliberately no .env fallback
+# here - silently validating a different file than the one you deploy with is
+# how the two names drifted apart in the first place.
+#
+# Set ENV_FILE=/path/to/file to validate a config kept somewhere else.
 ENV_FILE="${ENV_FILE:-.env.prod}"
 if [ -f "$ENV_FILE" ]; then
     set -a
+    # shellcheck disable=SC1090
     source "$ENV_FILE"
     set +a
     echo -e "${GREEN}Loaded environment from:${NC} $ENV_FILE"
 else
-    if [ -f ".env" ]; then
-        set -a
-        source ".env"
-        set +a
-        echo -e "${YELLOW}Using .env file (consider using .env.prod for production)${NC}"
-    fi
+    echo -e "${RED}Environment file not found:${NC} $ENV_FILE"
+    ERRORS=$((ERRORS + 1))
 fi
 
 ################################################################################
@@ -135,28 +145,6 @@ else
     pass "ENCRYPTION_KEY is properly configured"
 fi
 
-# Check JWT secret
-if [ -z "${JWT_SECRET:-}" ]; then
-    warn "JWT_SECRET is not set" \
-         "Generate with: openssl rand -base64 64"
-elif [ ${#JWT_SECRET} -lt 32 ]; then
-    warn "JWT_SECRET is short (${#JWT_SECRET} chars)" \
-         "Generate a longer secret with: openssl rand -base64 64"
-else
-    pass "JWT_SECRET is properly configured"
-fi
-
-# Check session secret
-if [ -z "${SESSION_SECRET:-}" ]; then
-    warn "SESSION_SECRET is not set" \
-         "Generate with: openssl rand -base64 64"
-elif [ ${#SESSION_SECRET} -lt 32 ]; then
-    warn "SESSION_SECRET is short (${#SESSION_SECRET} chars)" \
-         "Generate a longer secret with: openssl rand -base64 64"
-else
-    pass "SESSION_SECRET is properly configured"
-fi
-
 # Check for default passwords
 DEFAULT_PASSWORDS=("password" "grc_secret" "minioadmin" "admin" "")
 
@@ -186,6 +174,26 @@ else
     pass "MINIO_ROOT_PASSWORD is not using default value"
 fi
 
+# deploy/env.example ships CHANGE_ME_* placeholders that are LONGER than the
+# minimum lengths checked above, so a config that was copied and never filled
+# in would otherwise validate clean and report its secrets as "properly
+# configured". deploy/preflight-check.sh scanned the file for CHANGE_ME before
+# it was deleted; this replaces that.
+PLACEHOLDER_VARS=("POSTGRES_PASSWORD" "MINIO_ROOT_PASSWORD" "ENCRYPTION_KEY")
+PLACEHOLDERS_FOUND=0
+for var in "${PLACEHOLDER_VARS[@]}"; do
+    case "${!var:-}" in
+        *CHANGE_ME*)
+            fail "$var still holds the CHANGE_ME placeholder from deploy/env.example" \
+                 "Replace it with a generated value"
+            PLACEHOLDERS_FOUND=$((PLACEHOLDERS_FOUND + 1))
+            ;;
+    esac
+done
+if [ "$PLACEHOLDERS_FOUND" -eq 0 ]; then
+    pass "No CHANGE_ME placeholders remain in the configuration"
+fi
+
 ################################################################################
 # Authentication Checks
 ################################################################################
@@ -203,6 +211,24 @@ else
         warn "FIREBASE_PROJECT_ID is not configured" \
              "Using the demo auth bypass - not suitable for production"
     fi
+fi
+
+# The frontend bundle is built from the VITE_* values, so a mismatch between
+# VITE_FIREBASE_PROJECT_ID and FIREBASE_PROJECT_ID produces a frontend whose
+# tokens the API guard rejects for the wrong audience. Worth catching here:
+# otherwise it surfaces as "jwt audience invalid" only after a full image
+# build. (deploy/preflight-check.sh was the only thing checking this before it
+# was deleted.)
+if [ -n "${FIREBASE_PROJECT_ID:-}" ] && [ -n "${VITE_FIREBASE_PROJECT_ID:-}" ]; then
+    if [ "$FIREBASE_PROJECT_ID" = "$VITE_FIREBASE_PROJECT_ID" ]; then
+        pass "VITE_FIREBASE_PROJECT_ID matches FIREBASE_PROJECT_ID"
+    else
+        fail "VITE_FIREBASE_PROJECT_ID ('$VITE_FIREBASE_PROJECT_ID') does not equal FIREBASE_PROJECT_ID ('$FIREBASE_PROJECT_ID')" \
+             "Make them the same value and rebuild the frontend image, or every sign-in fails on token audience"
+    fi
+elif [ -z "${VITE_FIREBASE_PROJECT_ID:-}" ] && [ "${NODE_ENV:-development}" = "production" ]; then
+    fail "VITE_FIREBASE_PROJECT_ID is not set - the frontend image would be built with no Firebase project" \
+         "Set it to the same value as FIREBASE_PROJECT_ID"
 fi
 
 # A Firebase ID token carries no hosted-domain claim, so the allowlist is the
@@ -387,6 +413,91 @@ else
 fi
 
 ################################################################################
+# Email Delivery Checks
+################################################################################
+
+section "Email Delivery"
+
+# services/controls/src/email/email.service.ts chooses the transport from
+# EMAIL_PROVIDER. Two things about it drive the checks below:
+#
+#   1. An unset EMAIL_PROVIDER defaults to 'smtp', and ANY unrecognised value
+#      also lands in the smtp branch.
+#   2. When the selected provider's configuration is incomplete the service
+#      does not fail - it falls back to console mode, which logs the message
+#      and never sends it. A missing SMTP password therefore looks like a
+#      working deployment until someone asks why no one got their email.
+#
+# So these checks are the only place that failure is loud.
+EMAIL_PROVIDER_VALUE="${EMAIL_PROVIDER:-smtp}"
+
+case "$EMAIL_PROVIDER_VALUE" in
+    console)
+        if [ "${NODE_ENV:-development}" = "production" ]; then
+            fail "EMAIL_PROVIDER=console with NODE_ENV=production - notification emails are written to the container log and never sent" \
+                 "Set EMAIL_PROVIDER to smtp, sendgrid or ses and fill in its variables"
+        else
+            pass "EMAIL_PROVIDER=console (emails are logged, not sent - acceptable outside production)"
+        fi
+        ;;
+    smtp)
+        SMTP_COMPLETE=true
+        if [ -z "${SMTP_HOST:-}" ]; then
+            fail "EMAIL_PROVIDER=smtp but SMTP_HOST is not set - the email service falls back to logging instead of sending" \
+                 "Set SMTP_HOST, or choose another EMAIL_PROVIDER"
+            SMTP_COMPLETE=false
+        fi
+        if [ -z "${SMTP_USER:-}" ]; then
+            fail "EMAIL_PROVIDER=smtp but SMTP_USER is not set - the email service falls back to logging instead of sending" \
+                 "Set SMTP_USER, or choose another EMAIL_PROVIDER"
+            SMTP_COMPLETE=false
+        fi
+        if [ -z "${SMTP_PASS:-}" ]; then
+            fail "EMAIL_PROVIDER=smtp but SMTP_PASS is not set - the email service falls back to logging instead of sending" \
+                 "Set SMTP_PASS, or choose another EMAIL_PROVIDER"
+            SMTP_COMPLETE=false
+        fi
+        if [ -z "${SMTP_PORT:-}" ]; then
+            warn "SMTP_PORT is not set - the email service uses 587" \
+                 "Set SMTP_PORT explicitly if your relay listens elsewhere"
+        fi
+        if [ "$SMTP_COMPLETE" = true ]; then
+            pass "SMTP delivery configured (host, user and password all set)"
+        fi
+        ;;
+    sendgrid)
+        if [ -z "${SENDGRID_API_KEY:-}" ]; then
+            fail "EMAIL_PROVIDER=sendgrid but SENDGRID_API_KEY is not set - the email service falls back to logging instead of sending" \
+                 "Set SENDGRID_API_KEY, or choose another EMAIL_PROVIDER"
+        else
+            pass "SendGrid delivery configured (SENDGRID_API_KEY is set)"
+        fi
+        ;;
+    ses)
+        SES_COMPLETE=true
+        # The service defaults the region to us-east-1, which silently sends
+        # from the wrong region if your verified identity lives elsewhere.
+        if [ -z "${AWS_REGION:-}" ]; then
+            fail "EMAIL_PROVIDER=ses but AWS_REGION is not set - the email service would assume us-east-1, where your sending identity may not be verified" \
+                 "Set AWS_REGION to the region holding your verified SES identity"
+            SES_COMPLETE=false
+        fi
+        if [ -z "${AWS_ACCESS_KEY_ID:-}" ] || [ -z "${AWS_SECRET_ACCESS_KEY:-}" ]; then
+            fail "EMAIL_PROVIDER=ses but AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY are incomplete - the email service falls back to logging instead of sending" \
+                 "Set both SES SMTP credentials, or choose another EMAIL_PROVIDER"
+            SES_COMPLETE=false
+        fi
+        if [ "$SES_COMPLETE" = true ]; then
+            pass "AWS SES delivery configured (region and credentials set)"
+        fi
+        ;;
+    *)
+        fail "EMAIL_PROVIDER='$EMAIL_PROVIDER_VALUE' is not a recognised provider - the email service treats anything unrecognised as 'smtp'" \
+             "Use console, smtp, sendgrid or ses"
+        ;;
+esac
+
+################################################################################
 # File System Checks
 ################################################################################
 
@@ -408,6 +519,82 @@ if [ -f "docker-compose.prod.yml" ]; then
 else
     warn "docker-compose.prod.yml not found" \
          "Create a production-specific Docker Compose configuration"
+fi
+
+################################################################################
+# Host Prerequisite Checks
+################################################################################
+#
+# These four checks are the only ones deploy/preflight-check.sh performed that
+# this script did not. That script was deleted rather than repaired, because
+# two overlapping readiness checks that can disagree with each other are worse
+# than one, so its machine-level checks live here now.
+
+section "Host Prerequisites"
+
+if command -v docker >/dev/null 2>&1; then
+    pass "docker is installed"
+    if docker info >/dev/null 2>&1; then
+        pass "docker daemon is running"
+
+        # Reported in bytes; compared in MB because the documented target is a
+        # 4 GB VM, which reports slightly less than 4096 MB.
+        DOCKER_MEM_BYTES="$(docker info --format '{{.MemTotal}}' 2>/dev/null || echo 0)"
+        DOCKER_MEM_MB=$((DOCKER_MEM_BYTES / 1024 / 1024))
+        if [ "$DOCKER_MEM_MB" -ge 3500 ]; then
+            pass "Docker has ${DOCKER_MEM_MB}MB of memory available"
+        elif [ "$DOCKER_MEM_MB" -ge 1900 ]; then
+            warn "Docker has only ${DOCKER_MEM_MB}MB of memory" \
+                 "The full stack is sized for a 4GB host; expect the build to be the tight part"
+        else
+            fail "Docker has ${DOCKER_MEM_MB}MB of memory - too little to run the stack" \
+                 "Deploy onto a host with at least 4GB"
+        fi
+    else
+        fail "docker daemon is not running" \
+             "Start Docker before deploying"
+    fi
+else
+    fail "docker is not installed" \
+         "Install Docker Engine and the compose plugin"
+fi
+
+if docker compose version >/dev/null 2>&1; then
+    pass "docker compose (v2 plugin) is available"
+else
+    fail "docker compose v2 is not available" \
+         "Install the Docker compose plugin; the deploy commands all use 'docker compose'"
+fi
+
+# Only Traefik publishes host ports (80/443); every other service is reached
+# through the gateway on the internal network, so nothing else can conflict.
+# A port already in use is a warning, not an error - on a host that is already
+# running the stack, that is exactly what you would expect to see.
+for port in 80 443; do
+    if lsof -i ":$port" >/dev/null 2>&1 || netstat -tuln 2>/dev/null | grep -q ":$port "; then
+        warn "Port $port is already in use" \
+             "Free it, or confirm it is this stack's own Traefik already running"
+    else
+        pass "Port $port is available"
+    fi
+done
+
+DISK_AVAIL_GB="$(df -g . 2>/dev/null | awk 'NR==2 {print $4}' || echo "")"
+if [ -z "$DISK_AVAIL_GB" ]; then
+    DISK_AVAIL_GB="$(df -BG . 2>/dev/null | awk 'NR==2 {print $4}' | tr -d 'G' || echo "")"
+fi
+if [ -n "$DISK_AVAIL_GB" ]; then
+    if [ "$DISK_AVAIL_GB" -ge 20 ]; then
+        pass "Disk space available: ${DISK_AVAIL_GB}GB"
+    elif [ "$DISK_AVAIL_GB" -ge 10 ]; then
+        warn "Disk space available: ${DISK_AVAIL_GB}GB" \
+             "Images, volumes and backups want 20GB or more"
+    else
+        fail "Disk space available: ${DISK_AVAIL_GB}GB - not enough to build and run the stack" \
+             "Free space or resize the volume before deploying"
+    fi
+else
+    warn "Could not determine available disk space"
 fi
 
 ################################################################################
